@@ -5,6 +5,7 @@ import { AdminSidebar, AdminTopbar } from './AdminSidebar';
 import { AdminDashboard } from './AdminDashboard';
 import { AdminDishes } from './AdminDishes';
 import { AdminOrders } from './AdminOrders';
+import { AdminLeads } from './AdminLeads';
 import { AdminCustomers } from './AdminCustomers';
 import { AdminMenuPDF } from './AdminMenuPDF';
 import { AdminCampaigns } from './AdminCampaigns';
@@ -49,6 +50,7 @@ export const AdminPage: React.FC = () => {
   const viewMap: Record<AdminView, React.ReactNode> = {
     dashboard: <AdminDashboard onNavigate={(v) => setActiveView(v as AdminView)} />,
     orders: <AdminOrders onOpenKitchenSheet={handleNavigateToKitchenSheet} />,
+    leads: <AdminLeads onNavigateToOrders={() => setActiveView('orders')} />,
     'kitchen-sheet': <AdminKitchenSheet initialOrderId={selectedKitchenOrderId} />,
     dishes: <AdminDishes />,
     inventory: <AdminInventory />,

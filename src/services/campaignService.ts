@@ -1,5 +1,5 @@
 import type { Campaign, CampaignType, CampaignStatus } from '../types/admin';
-import { siteConfig } from '../config/site';
+import { siteConfig, getBusinessName } from '../config/site';
 
 const CAMPAIGNS_KEY = 'annapoorna_campaigns';
 const CAMPAIGN_COUNTER_KEY = 'annapoorna_campaign_counter';
@@ -96,13 +96,14 @@ function generateCampaignId(): string {
 export function replacePlaceholders(
   template: string,
   customer: { name: string; mobile?: string },
-  offerDetails = ''
+  offerDetails = '',
+  lang = 'en'
 ): string {
-  const bizName = siteConfig.name;
+  const bizName = getBusinessName(lang);
   const bizPhone = siteConfig.whatsappNumber;
 
   return template
-    .replace(/\{\{customer_name\}\}/g, customer.name || 'Valued Customer')
+    .replace(/\{\{customer_name\}\}/g, customer.name || (lang === 'ta' ? 'அன்புள்ள வாடிக்கையாளர்' : 'Valued Customer'))
     .replace(/\{\{business_name\}\}/g, bizName)
     .replace(/\{\{business_phone\}\}/g, bizPhone)
     .replace(/\{\{offer_details\}\}/g, offerDetails || '');

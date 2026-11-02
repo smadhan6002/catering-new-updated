@@ -5,7 +5,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type { KitchenOrderSheet } from '../types/admin';
-import { siteConfig } from '../config/site';
+import { siteConfig, getBusinessName } from '../config/site';
 import { formatUnitLabel } from '../services/kitchenSheetService';
 import logoImg from '../assets/LOGO.png';
 
@@ -55,7 +55,7 @@ function generateEnglishVectorPDF(sheet: KitchenOrderSheet): void {
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(16);
   doc.setFont('helvetica', 'bold');
-  doc.text(siteConfig.name, 14, 12);
+  doc.text(getBusinessName('en'), 14, 12);
 
   doc.setFontSize(8.5);
   doc.setFont('helvetica', 'normal');
@@ -178,7 +178,7 @@ function generateEnglishVectorPDF(sheet: KitchenOrderSheet): void {
         doc.setTextColor(255, 255, 255);
         doc.setFontSize(9);
         doc.setFont('helvetica', 'bold');
-        doc.text(`${siteConfig.name}  •  Kitchen Sheet: ${sheet.orderId} (${sheet.customerName})`, 14, 9);
+        doc.text(`${getBusinessName('en')}  •  Kitchen Sheet: ${sheet.orderId} (${sheet.customerName})`, 14, 9);
       }
 
       // Footer band on every page
@@ -371,7 +371,7 @@ async function generateTamilCanvasPDF(
     // Business Name & Title
     ctx.fillStyle = '#FFFFFF';
     ctx.font = 'bold 30px "Noto Sans Tamil", "Inter", sans-serif';
-    ctx.fillText(siteConfig.name, 160, y + 42);
+    ctx.fillText(getBusinessName('ta'), 160, y + 42);
 
     ctx.font = 'bold 18px "Noto Sans Tamil", "Inter", sans-serif';
     ctx.fillStyle = '#FEF3C7';
@@ -612,7 +612,7 @@ async function generateTamilCanvasPDF(
     ctx.fillStyle = '#64748B';
     ctx.font = '12px "Noto Sans Tamil", "Inter", sans-serif';
     ctx.fillText(
-      `${siteConfig.name}  •  Ph: ${siteConfig.whatsappNumber}  •  சமையல் மாஸ்டர் நகல் (Master Cooking Copy)  •  ${sheet.orderId}`,
+      `${getBusinessName('ta')}  •  Ph: ${siteConfig.whatsappNumber}  •  சமையல் மாஸ்டர் நகல் (Master Cooking Copy)  •  ${sheet.orderId}`,
       45,
       footerY + 24
     );

@@ -7,7 +7,7 @@
  */
 import jsPDF from 'jspdf';
 import type { InventoryDocument, InventoryDocumentItem } from '../types/inventory';
-import { siteConfig } from '../config/site';
+import { siteConfig, getBusinessName } from '../config/site';
 import { formatUnitLabel } from '../services/inventoryService';
 import logoImg from '../assets/LOGO.png';
 
@@ -203,9 +203,10 @@ export async function generateInventoryPDF(
     }
 
     // Business Header Info
+    const bizName = getBusinessName(language);
     ctx.fillStyle = '#FFFFFF';
     ctx.font = 'bold 30px "Noto Sans Tamil", "Inter", sans-serif';
-    ctx.fillText(siteConfig.name, 175, y + 42);
+    ctx.fillText(bizName, 175, y + 42);
 
     ctx.font = 'bold 16px "Noto Sans Tamil", "Inter", sans-serif';
     ctx.fillStyle = '#FEF3C7';
@@ -519,7 +520,7 @@ export async function generateInventoryPDF(
     ctx.fillStyle = '#64748B';
     ctx.font = '11px "Noto Sans Tamil", "Inter", sans-serif';
     ctx.fillText(
-      `${siteConfig.name}  •  Ph: +91 ${siteConfig.whatsappNumber}  •  Grocery & Vegetable Department`,
+      `${bizName}  •  Ph: +91 ${siteConfig.whatsappNumber}  •  ${isTa ? 'மளிகைப் பொருட்கள் துறை' : 'Grocery & Vegetable Department'}`,
       45,
       footerY + 22
     );
@@ -718,8 +719,8 @@ export function printInventoryDocument(doc: InventoryDocument, language: 'en' | 
     <body>
       <div class="header">
         <div>
-          <div class="brand">${siteConfig.name}</div>
-          <div class="sub">${siteConfig.tamilName} • Ph: +91 ${siteConfig.whatsappNumber}</div>
+          <div class="brand">${getBusinessName(language)}</div>
+          <div class="sub">${isTa ? siteConfig.name : siteConfig.tamilName} • Ph: +91 ${siteConfig.whatsappNumber}</div>
           <div class="doc-title">${isTa ? 'மளிகைப் பொருட்கள் & காய்கறி கொள்முதல் பட்டியல்' : 'Grocery & Vegetable Purchase / Stock List'}</div>
         </div>
         <div class="meta-box">

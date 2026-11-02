@@ -8,6 +8,7 @@ import {
   FileDown,
   ArrowRight,
   Boxes,
+  UserCheck,
 } from 'lucide-react';
 import { orderService, getOrderTotalPaid, getOrderBalanceDue } from '../../services/orderService';
 import { customerService } from '../../services/customerService';
@@ -94,6 +95,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
             >
               <Plus size={15} />
               <span>{isTa ? 'புதிய ஆர்டர்' : 'Add Order'}</span>
+            </button>
+            <button
+              onClick={() => onNavigate('leads')}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-orange-50 hover:bg-orange-100 text-orange-900 rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer border border-orange-200"
+            >
+              <UserCheck size={15} className="text-primary" />
+              <span>{isTa ? 'வாடிக்கையாளர் தொடர்புகள்' : 'Customer Leads'}</span>
             </button>
             <button
               onClick={() => onNavigate('rental-items')}

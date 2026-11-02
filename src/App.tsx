@@ -4,7 +4,6 @@ import { User, ChevronDown, Check } from 'lucide-react';
 import { categories } from './data/menu';
 import { CartProvider } from './context/CartContext';
 import { LanguageProvider, useLanguage, type Language } from './context/LanguageContext';
-import { siteConfig } from './config/site';
 import { Hero } from './components/Hero';
 import { CategoryNav } from './components/CategoryNav';
 import { MenuSection } from './components/MenuSection';
@@ -99,7 +98,7 @@ function AdminLoginButton() {
 }
 
 function MainApp() {
-  const { lang } = useLanguage();
+  const { lang, businessName } = useLanguage();
   const [activeCategory, setActiveCategory] = React.useState(categories[0].id);
 
   React.useEffect(() => {
@@ -131,16 +130,16 @@ function MainApp() {
           <a
             href="/"
             className="flex items-center gap-2 sm:gap-3 group min-w-0"
-            aria-label="Kanchi Ambal Catering Home"
+            aria-label={`${businessName} Home`}
           >
             <img
               src={logoImg}
-              alt="Kanchi Ambal Catering Logo"
+              alt={`${businessName} Logo`}
               className="h-9 w-9 sm:h-11 sm:w-11 md:h-12 md:w-12 object-contain rounded-full border border-slate-200 bg-white p-0.5 shadow-2xs transition-transform group-hover:scale-105 duration-200 flex-shrink-0"
             />
             <div className="min-w-0">
               <span className="block font-bold text-sm sm:text-base md:text-xl text-slate-900 tracking-tight truncate group-hover:text-primary transition-colors">
-                {siteConfig.name}
+                {businessName}
               </span>
               <span className="hidden sm:block text-[10px] md:text-xs font-medium text-slate-500 -mt-0.5 truncate">
                 {lang === 'ta' ? 'பாரம்பரிய கேட்டரிங் சேவைகள்' : 'Authentic Traditional Feast Catering'}

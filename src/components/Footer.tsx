@@ -5,7 +5,7 @@ import { siteConfig } from '../config/site';
 import logoImg from '../assets/LOGO.png';
 
 export const Footer: React.FC = () => {
-  const { t } = useLanguage();
+  const { t, lang, businessName } = useLanguage();
 
   return (
     <footer className="bg-slate-900 text-slate-300 pt-12 pb-8 border-t border-slate-800 shadow-inner">
@@ -16,12 +16,12 @@ export const Footer: React.FC = () => {
             <div className="flex items-center gap-3">
               <img
                 src={logoImg}
-                alt={`${siteConfig.name} Logo`}
+                alt={`${businessName} Logo`}
                 className="w-12 h-12 rounded-full bg-white p-0.5 border border-orange-500/40 shadow-md object-contain"
               />
               <div>
-                <h3 className="text-lg font-bold text-white tracking-tight">{siteConfig.name}</h3>
-                <p className="text-xs text-orange-300">{siteConfig.tamilName}</p>
+                <h3 className="text-lg font-bold text-white tracking-tight">{businessName}</h3>
+                <p className="text-xs text-orange-300">{lang === 'ta' ? siteConfig.name : siteConfig.tamilName}</p>
               </div>
             </div>
             <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
@@ -97,7 +97,7 @@ export const Footer: React.FC = () => {
 
         {/* Bottom copyright */}
         <div className="pt-6 text-center text-xs text-slate-500">
-          <p>© {new Date().getFullYear()} {siteConfig.name}. All rights reserved. | Kanchipuram, Tamil Nadu</p>
+          <p>© {new Date().getFullYear()} {businessName}. All rights reserved. | Kanchipuram, Tamil Nadu</p>
         </div>
       </div>
     </footer>

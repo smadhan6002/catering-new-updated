@@ -26,7 +26,7 @@ export const AdminMenuPDF: React.FC = () => {
     try {
       await generateMenuPDF((percent, status) => {
         setProgress({ percent, status });
-      });
+      }, lang);
       setSuccess(true);
       setTimeout(() => setSuccess(false), 4000);
     } catch (err) {

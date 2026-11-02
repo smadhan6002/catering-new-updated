@@ -5,7 +5,7 @@
  */
 import jsPDF from 'jspdf';
 import type { RentalDocument } from '../types/rental';
-import { siteConfig } from '../config/site';
+import { siteConfig, getBusinessName } from '../config/site';
 import logoImg from '../assets/LOGO.png';
 
 function loadImage(src: string): Promise<HTMLImageElement | null> {
@@ -158,13 +158,13 @@ export async function generateRentalPDF(
           '4. கூடுதல் நாளுக்கான வாடகையைத் தவிர்க்க குறிப்பிட்ட தேதிக்குள் பொருட்களைத் திரும்ப ஒப்படைக்கவும்.',
         ]
       : [
-          '1. All rented items remain the property of Kanchi Ambal Catering and must be returned clean, dry, and undamaged.',
+          `1. All rented items remain the property of ${getBusinessName(language)} and must be returned clean, dry, and undamaged.`,
           '2. Refundable security deposit will be settled promptly upon safe inspection and verification of all returned inventory.',
           '3. Any breakage, dent, or missing items will be deducted from the security deposit or charged at replacement cost.',
           '4. Please adhere to the agreed return schedule to avoid additional daily rental charges.',
         ],
     custSign: isTa ? 'வாடிக்கையாளர் கையொப்பம்' : 'Customer Signature',
-    repSign: isTa ? 'காஞ்சி அம்பாள் கேட்டரிங் சார்பாக' : 'For Kanchi Ambal Catering',
+    repSign: isTa ? 'காஞ்சி அம்பாள் கேட்டரிங் சார்பாக' : `For ${getBusinessName(language)}`,
     pageOf: isTa ? 'பக்கம்' : 'Page',
     of: isTa ? '/' : 'of',
   };
@@ -218,9 +218,10 @@ export async function generateRentalPDF(
     }
 
     // Business Name & Title
+    const bizName = getBusinessName(language);
     ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 32px "Inter", "Segoe UI", sans-serif';
-    ctx.fillText(siteConfig.name, 175, y + 44);
+    ctx.font = 'bold 30px "Noto Sans Tamil", "Inter", sans-serif';
+    ctx.fillText(bizName, 175, y + 44);
 
     ctx.font = 'bold 16px "Noto Sans Tamil", "Inter", sans-serif';
     ctx.fillStyle = '#FEF3C7';
@@ -556,9 +557,9 @@ export async function generateRentalPDF(
       const repX = PAGE_WIDTH - 70 - signW;
       ctx.strokeRect(repX, y + 40, signW, 1);
       ctx.fillText(L.repSign, repX, y + 58);
-      ctx.font = '11px "Inter", sans-serif';
+      ctx.font = '11px "Noto Sans Tamil", "Inter", sans-serif';
       ctx.fillStyle = '#64748B';
-      ctx.fillText(siteConfig.name, repX, y + 74);
+      ctx.fillText(bizName, repX, y + 74);
     }
 
     // ─── FOOTER ───────────────────────────────────────────────
@@ -569,7 +570,7 @@ export async function generateRentalPDF(
     ctx.fillStyle = '#64748B';
     ctx.font = '12px "Noto Sans Tamil", "Inter", sans-serif';
     ctx.fillText(
-      `${siteConfig.name}  •  Ph: +91 ${siteConfig.whatsappNumber}  •  ${doc.rentalNumber}  •  ${isTa ? 'அனைத்து உரிமைகளும் பாதுகாக்கப்பட்டவை' : 'All rights reserved'}`,
+      `${bizName}  •  Ph: +91 ${siteConfig.whatsappNumber}  •  ${doc.rentalNumber}  •  ${isTa ? 'அனைத்து உரிமைகளும் பாதுகாக்கப்பட்டவை' : 'All rights reserved'}`,
       45,
       footerY + 22
     );

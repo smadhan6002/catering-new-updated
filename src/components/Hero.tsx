@@ -1,18 +1,17 @@
 import React, { useState } from 'react';
-import { siteConfig } from '../config/site';
 import { useLanguage } from '../context/LanguageContext';
 import { generateMenuPDF } from '../utils/generateMenuPDF';
 import heroImg from '../assets/Home section.jpg';
 import { Download, Utensils } from 'lucide-react';
 
 export const Hero: React.FC = () => {
-  const { t, lang } = useLanguage();
+  const { t, lang, businessName } = useLanguage();
   const [downloading, setDownloading] = useState(false);
 
   async function handleDownloadMenu() {
     setDownloading(true);
     try {
-      await generateMenuPDF();
+      await generateMenuPDF(undefined, lang);
     } catch (err) {
       console.error(err);
     } finally {
@@ -46,7 +45,7 @@ export const Hero: React.FC = () => {
 
         {/* Brand Heading */}
         <h1 className="hero-title text-3xl sm:text-5xl md:text-6xl font-extrabold mb-3 sm:mb-4 tracking-tight leading-tight">
-          {siteConfig.name}
+          {businessName}
         </h1>
 
         {/* Catering Description */}

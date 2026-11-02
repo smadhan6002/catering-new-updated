@@ -14,6 +14,7 @@ import {
   Check,
   X,
   AlertTriangle,
+  AlertCircle,
   FolderPlus,
   Calendar,
   Layers,
@@ -92,7 +93,11 @@ export const AdminInventory: React.FC = () => {
   const [customItemNameEn, setCustomItemNameEn] = useState('');
   const [customItemNameTa, setCustomItemNameTa] = useState('');
   const [customItemUnit, setCustomItemUnit] = useState('kg');
-  const [customItemQty, setCustomItemQty] = useState('1');
+  const [customItemQty, setCustomItemQty] = useState('');
+
+  // Mandatory quantity validation states
+  const [missingQtyItemIds, setMissingQtyItemIds] = useState<string[]>([]);
+  const [qtyValidationError, setQtyValidationError] = useState<string | null>(null);
 
   // Preview / Saved Document View modal
   const [previewDoc, setPreviewDoc] = useState<InventoryDocument | null>(null);
@@ -305,6 +310,9 @@ export const AdminInventory: React.FC = () => {
     setSelectedDocItems([]);
     setDocStep('details');
     setShowCustomItemRow(false);
+    setCustomItemQty('');
+    setMissingQtyItemIds([]);
+    setQtyValidationError(null);
     setIsDocModalOpen(true);
   }
 
@@ -312,10 +320,9 @@ export const AdminInventory: React.FC = () => {
     const exists = selectedDocItems.find((i) => i.catalogueItemId === item.id);
     if (exists) {
       setSelectedDocItems(selectedDocItems.filter((i) => i.catalogueItemId !== item.id));
+      setMissingQtyItemIds((prev) => prev.filter((id) => id !== exists.id));
     } else {
       const cat = categories.find((c) => c.id === item.categoryId);
-      const defaultQty = item.purchaseQuantity !== undefined ? String(item.purchaseQuantity) : '1';
-      const initialQtyNum = parseFloat(defaultQty) || 1;
       const newDocItem: InventoryDocumentItem = {
         id: `docit-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         catalogueItemId: item.id,
@@ -323,10 +330,10 @@ export const AdminInventory: React.FC = () => {
         nameTa: item.nameTa,
         categoryNameEn: cat?.nameEn || 'Other',
         categoryNameTa: cat?.nameTa || 'பிற பொருட்கள்',
-        quantity: defaultQty,
+        quantity: '', // Empty by default as requested
         unit: item.unit,
         unitPrice: item.unitPrice,
-        totalPrice: item.unitPrice ? Math.round(item.unitPrice * initialQtyNum * 100) / 100 : undefined,
+        totalPrice: undefined,
       };
       setSelectedDocItems([...selectedDocItems, newDocItem]);
     }
@@ -334,22 +341,20 @@ export const AdminInventory: React.FC = () => {
 
   function handleAddCustomDocItem() {
     if (!customItemNameEn.trim()) return;
-    const cleanQty = customItemQty.trim() !== '' ? customItemQty.trim() : '1';
-    const parsedQty = parseFloat(cleanQty);
-    const validQty = !isNaN(parsedQty) && parsedQty > 0 ? cleanQty : '1';
+    const cleanQty = customItemQty.trim();
     const newDocItem: InventoryDocumentItem = {
       id: `docit-custom-${Date.now()}`,
       nameEn: customItemNameEn.trim(),
       nameTa: customItemNameTa.trim() || customItemNameEn.trim(),
       categoryNameEn: 'Custom / Other',
       categoryNameTa: 'சிறப்பு / இதர பொருட்கள்',
-      quantity: validQty,
+      quantity: cleanQty, // Empty if not entered
       unit: customItemUnit,
     };
     setSelectedDocItems([...selectedDocItems, newDocItem]);
     setCustomItemNameEn('');
     setCustomItemNameTa('');
-    setCustomItemQty('1');
+    setCustomItemQty('');
     setShowCustomItemRow(false);
   }
 
@@ -370,17 +375,31 @@ export const AdminInventory: React.FC = () => {
         return item;
       })
     );
+
+    // If valid positive quantity was entered, clear from missing IDs
+    if (val.trim() !== '' && !isNaN(parseFloat(val)) && parseFloat(val) > 0) {
+      setMissingQtyItemIds((prev) => {
+        const next = prev.filter((itemId) => itemId !== id);
+        if (next.length === 0) {
+          setQtyValidationError(null);
+        }
+        return next;
+      });
+    }
   }
 
   function handleBlurDocItemQuantity(id: string) {
     setSelectedDocItems(
       selectedDocItems.map((item) => {
         if (item.id === id) {
-          const raw = String(item.quantity).trim();
+          const raw = String(item.quantity ?? '').trim();
+          if (raw === '') {
+            // Keep empty by default; do NOT auto-insert 1
+            return { ...item, quantity: '', totalPrice: undefined };
+          }
           const parsed = parseFloat(raw);
-          if (raw === '' || isNaN(parsed) || parsed <= 0) {
-            const total = item.unitPrice ? Math.round(1 * item.unitPrice * 100) / 100 : undefined;
-            return { ...item, quantity: '1', totalPrice: total };
+          if (isNaN(parsed) || parsed <= 0) {
+            return { ...item, quantity: raw, totalPrice: undefined };
           }
           // Clean up dangling decimal points e.g. "2." -> "2"
           const cleanVal = raw.endsWith('.') ? String(parsed) : raw;
@@ -423,6 +442,7 @@ export const AdminInventory: React.FC = () => {
 
   function removeDocItem(id: string) {
     setSelectedDocItems(selectedDocItems.filter((item) => item.id !== id));
+    setMissingQtyItemIds((prev) => prev.filter((mId) => mId !== id));
   }
 
   function handleSaveAndPreviewDocument() {
@@ -435,14 +455,51 @@ export const AdminInventory: React.FC = () => {
       return;
     }
 
-    // Ensure all items have clean valid quantities before saving
+    // MANDATORY VALIDATION: Check that EVERY item has a positive decimal quantity entered
+    const missing = selectedDocItems.filter((it) => {
+      const qStr = String(it.quantity ?? '').trim();
+      const qNum = parseFloat(qStr);
+      return qStr === '' || isNaN(qNum) || qNum <= 0;
+    });
+
+    if (missing.length > 0) {
+      const missingIds = missing.map((m) => m.id);
+      setMissingQtyItemIds(missingIds);
+
+      const itemNames = missing
+        .map((it) => (isTa ? it.nameTa || it.nameEn : it.nameEn))
+        .join(', ');
+
+      const errorMsg = isTa
+        ? `ஆவணத்தை உருவாக்குவதற்கு முன் அனைத்து பொருட்களுக்கும் தேவையான அளவுகளை உள்ளிடவும். அளவு உள்ளிடப்படாத பொருட்கள்: ${missing.length}. (பொருட்கள்: ${itemNames})`
+        : `Please enter quantities for all selected items before generating the document. Missing quantities: ${missing.length}. (Items: ${itemNames})`;
+
+      setQtyValidationError(errorMsg);
+
+      // Auto-scroll to first missing item quantity field and focus it
+      setTimeout(() => {
+        const firstEl = document.getElementById(`doc-qty-input-${missingIds[0]}`);
+        if (firstEl) {
+          firstEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          (firstEl as HTMLInputElement).focus();
+          (firstEl as HTMLInputElement).select();
+        }
+      }, 60);
+
+      return;
+    }
+
+    // All quantities are valid: Clear validation errors
+    setMissingQtyItemIds([]);
+    setQtyValidationError(null);
+
+    // Ensure all items have clean valid numbers/strings before saving
     const sanitizedItems: InventoryDocumentItem[] = selectedDocItems.map((item) => {
       const raw = String(item.quantity).trim();
       const parsed = parseFloat(raw);
-      const cleanQty = raw === '' || isNaN(parsed) || parsed <= 0 ? 1 : raw;
       return {
         ...item,
-        quantity: cleanQty,
+        quantity: parsed,
       };
     });
 
@@ -1815,6 +1872,17 @@ export const AdminInventory: React.FC = () => {
                     </span>
                   </div>
 
+                  {/* Validation error banner if any quantities are missing */}
+                  {qtyValidationError && (
+                    <div className="p-3.5 sm:p-4 bg-red-50 border-2 border-red-300 rounded-xl flex items-start gap-3 text-red-800 animate-in fade-in">
+                      <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                      <div className="flex-1 text-xs sm:text-sm">
+                        <p className="font-bold">{isTa ? 'அளவு சரிபார்ப்பு பிழை (Validation Error):' : 'Validation Error:'}</p>
+                        <p className="mt-0.5 font-medium leading-relaxed">{qtyValidationError}</p>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Selected items table with editable inputs */}
                   <div className="border border-slate-200 rounded-xl overflow-hidden">
                     <div className="overflow-x-auto max-h-[46vh]">
@@ -1845,16 +1913,28 @@ export const AdminInventory: React.FC = () => {
                                 </p>
                               </td>
                               <td className="py-2 px-3 text-center">
-                                <input
-                                  type="text"
-                                  inputMode="decimal"
-                                  autoComplete="off"
-                                  value={item.quantity}
-                                  onChange={(e) => updateDocItemQuantity(item.id, e.target.value)}
-                                  onBlur={() => handleBlurDocItemQuantity(item.id)}
-                                  placeholder="1"
-                                  className="w-20 px-2 py-1 text-center border border-slate-200 rounded-lg text-xs font-bold text-primary bg-white focus:outline-none focus:ring-1 focus:ring-primary [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                />
+                                <div className="flex flex-col items-center">
+                                  <input
+                                    id={`doc-qty-input-${item.id}`}
+                                    type="text"
+                                    inputMode="decimal"
+                                    autoComplete="off"
+                                    value={item.quantity}
+                                    onChange={(e) => updateDocItemQuantity(item.id, e.target.value)}
+                                    onBlur={() => handleBlurDocItemQuantity(item.id)}
+                                    placeholder={isTa ? 'அளவு' : 'Qty'}
+                                    className={`w-20 px-2 py-1 text-center border rounded-lg text-xs font-bold bg-white focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none transition-all ${
+                                      missingQtyItemIds.includes(item.id)
+                                        ? 'border-2 border-red-500 bg-red-50/70 text-red-700 ring-2 ring-red-400 focus:ring-red-500'
+                                        : 'border-slate-200 text-primary focus:ring-1 focus:ring-primary'
+                                    }`}
+                                  />
+                                  {missingQtyItemIds.includes(item.id) && (
+                                    <span className="text-[10px] text-red-600 font-bold block mt-0.5 whitespace-nowrap animate-pulse">
+                                      {isTa ? 'அளவு தேவை *' : 'Qty required *'}
+                                    </span>
+                                  )}
+                                </div>
                               </td>
                               <td className="py-2 px-3">
                                 <select
@@ -2128,9 +2208,14 @@ export const AdminInventory: React.FC = () => {
                   <button
                     type="button"
                     onClick={handleSaveAndPreviewDocument}
-                    className="px-5 py-2 bg-primary hover:bg-[#c2410c] text-white text-xs font-bold rounded-xl shadow-md cursor-pointer"
+                    className="px-5 py-2 bg-primary hover:bg-[#c2410c] text-white text-xs font-bold rounded-xl shadow-md cursor-pointer flex items-center gap-2"
                   >
-                    {isTa ? 'ஆவணத்தைச் சேமி & முன்னோட்டம் காண் ✓' : 'Save Document & Preview ✓'}
+                    <span>{isTa ? 'ஆவணத்தைச் சேமி & முன்னோட்டம் காண் ✓' : 'Save Document & Preview ✓'}</span>
+                    {missingQtyItemIds.length > 0 && (
+                      <span className="px-1.5 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-bold animate-pulse">
+                        {missingQtyItemIds.length} {isTa ? 'அளவு விடுபட்டுள்ளது' : 'missing'}
+                      </span>
+                    )}
                   </button>
                 )}
               </div>

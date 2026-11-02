@@ -1,7 +1,7 @@
 import jsPDF from 'jspdf';
 import { categories as staticCategories } from '../data/menu';
 import { dishService } from '../services/dishService';
-import { siteConfig } from '../config/site';
+import { siteConfig, getBusinessName } from '../config/site';
 import { ta } from '../locales/ta';
 import logoImg from '../assets/LOGO.png';
 
@@ -96,8 +96,13 @@ function compileMenuData(): MenuPageCategory[] {
 /**
  * Generates and downloads a Food Menu PDF with Tamil Unicode support
  */
-export async function generateMenuPDF(onProgress?: (percent: number, status: string) => void): Promise<void> {
+export async function generateMenuPDF(
+  onProgress?: (percent: number, status: string) => void,
+  language: 'en' | 'ta' = 'en'
+): Promise<void> {
   onProgress?.(10, 'Compiling menu items…');
+  const isTa = language === 'ta';
+  const bizName = getBusinessName(language);
 
   const menuCategories = compileMenuData();
   const logo = await loadImage(logoImg);
@@ -208,12 +213,16 @@ export async function generateMenuPDF(onProgress?: (percent: number, status: str
 
       // Title & Contact Info
       ctx.fillStyle = '#FFFFFF';
-      ctx.font = 'bold 36px "Inter", "Segoe UI", sans-serif';
-      ctx.fillText(siteConfig.name, 200, y + 60);
+      ctx.font = 'bold 36px "Noto Sans Tamil", "Inter", "Segoe UI", sans-serif';
+      ctx.fillText(bizName, 200, y + 60);
 
       ctx.font = 'bold 20px "Noto Sans Tamil", "Latha", sans-serif';
       ctx.fillStyle = '#FEF3C7';
-      ctx.fillText('காஞ்சி அம்பாள் பாரம்பரிய கேட்டரிங் மெனு பட்டியல்', 200, y + 92);
+      ctx.fillText(
+        isTa ? `${siteConfig.name} • பாரம்பரிய கேட்டரிங் மெனு பட்டியல்` : 'காஞ்சி அம்பாள் பாரம்பரிய கேட்டரிங் மெனு பட்டியல்',
+        200,
+        y + 92
+      );
 
       ctx.font = '16px "Inter", "Segoe UI", sans-serif';
       ctx.fillStyle = '#FFFFFF';
@@ -239,8 +248,8 @@ export async function generateMenuPDF(onProgress?: (percent: number, status: str
       ctx.fillRect(45, y, PAGE_WIDTH - 90, 60);
 
       ctx.fillStyle = '#FFFFFF';
-      ctx.font = 'bold 24px "Inter", "Segoe UI", sans-serif';
-      ctx.fillText(siteConfig.name, 65, y + 40);
+      ctx.font = 'bold 24px "Noto Sans Tamil", "Inter", "Segoe UI", sans-serif';
+      ctx.fillText(bizName, 65, y + 40);
 
       ctx.font = '16px "Inter", "Segoe UI", sans-serif';
       ctx.fillStyle = '#FEF3C7';
@@ -342,9 +351,9 @@ export async function generateMenuPDF(onProgress?: (percent: number, status: str
     ctx.fillRect(45, footerY, PAGE_WIDTH - 90, 1);
 
     ctx.fillStyle = '#64748B';
-    ctx.font = '12px "Inter", "Segoe UI", sans-serif';
+    ctx.font = '12px "Noto Sans Tamil", "Inter", "Segoe UI", sans-serif';
     ctx.fillText(
-      `${siteConfig.name}  •  Ph: ${siteConfig.whatsappNumber}  •  Delicious, Hygienic, Authentic Feast`,
+      `${bizName}  •  Ph: ${siteConfig.whatsappNumber}  •  ${isTa ? 'சுவையான, சுகாதாரமான பாரம்பரிய விருந்து' : 'Delicious, Hygienic, Authentic Feast'}`,
       45,
       footerY + 22
     );

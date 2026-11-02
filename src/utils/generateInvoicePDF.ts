@@ -6,7 +6,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type { Order } from '../types/admin';
 import type { Invoice } from '../types/admin';
-import { siteConfig } from '../config/site';
+import { siteConfig, getBusinessName } from '../config/site';
 
 import { normalizeOrderPayments, getOrderTotalPaid, getOrderBalanceDue, getOrderPaymentStatus } from '../services/orderService';
 
@@ -21,8 +21,9 @@ function inr(amount: number): string {
   return `Rs. ${amount.toLocaleString('en-IN')}`;
 }
 
-export function generateInvoicePDF(order: Order, invoice: Invoice): void {
+export function generateInvoicePDF(order: Order, invoice: Invoice, lang: 'en' | 'ta' = 'en'): void {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const bizName = getBusinessName(lang);
 
   const primaryColor: [number, number, number] = [234, 88, 12]; // #EA580C Primary Orange
   const darkColor: [number, number, number] = [30, 41, 59];     // #1E293B Body Text
@@ -40,7 +41,7 @@ export function generateInvoicePDF(order: Order, invoice: Invoice): void {
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(18);
   doc.setFont('helvetica', 'bold');
-  doc.text(siteConfig.name, 14, 13);
+  doc.text(bizName, 14, 13);
 
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
@@ -256,7 +257,7 @@ export function generateInvoicePDF(order: Order, invoice: Invoice): void {
   doc.setFontSize(8);
   doc.setFont('helvetica', 'normal');
   doc.text(
-    `${siteConfig.name}  |  Ph: ${siteConfig.whatsappNumber}  |  Generated: ${new Date().toLocaleDateString('en-IN')}`,
+    `${bizName}  |  Ph: ${siteConfig.whatsappNumber}  |  Generated: ${new Date().toLocaleDateString('en-IN')}`,
     pageW / 2,
     footerY + 4,
     { align: 'center' }

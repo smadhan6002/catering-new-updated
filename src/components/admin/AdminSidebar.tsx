@@ -17,15 +17,16 @@ import {
   ChefHat,
   Boxes,
   ShoppingBasket,
+  UserCheck,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { siteConfig } from '../../config/site';
 import { useLanguage } from '../../context/LanguageContext';
 import logoImg from '../../assets/LOGO.png';
 
 export type AdminView =
   | 'dashboard'
   | 'orders'
+  | 'leads'
   | 'kitchen-sheet'
   | 'dishes'
   | 'inventory'
@@ -53,12 +54,13 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
   onClose,
 }) => {
   const navigate = useNavigate();
-  const { lang, setLang } = useLanguage();
+  const { lang, setLang, businessName } = useLanguage();
   const isTa = lang === 'ta';
 
   const navItems: { view: AdminView; labelEn: string; labelTa: string; icon: React.ReactNode }[] = [
     { view: 'dashboard', labelEn: 'Dashboard', labelTa: 'டாஷ்போர்டு', icon: <LayoutDashboard size={18} /> },
     { view: 'orders', labelEn: 'Orders', labelTa: 'ஆர்டர்கள்', icon: <ClipboardList size={18} /> },
+    { view: 'leads', labelEn: 'Customer Leads', labelTa: 'வாடிக்கையாளர் தொடர்புகள் (Leads)', icon: <UserCheck size={18} /> },
     { view: 'kitchen-sheet', labelEn: 'Kitchen Order Sheet', labelTa: 'சமையல் குறிப்பு தாள்', icon: <ChefHat size={18} /> },
     { view: 'dishes', labelEn: 'Dishes', labelTa: 'உணவு வகைகள்', icon: <UtensilsCrossed size={18} /> },
     { view: 'inventory', labelEn: 'Grocery & Vegetable Inventory', labelTa: 'மளிகைப் பொருட்கள் மற்றும் காய்கறிகள்', icon: <ShoppingBasket size={18} /> },
@@ -77,10 +79,10 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
       <div className="flex items-center justify-between p-4 sm:p-5 border-b border-slate-200">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl overflow-hidden shadow-xs border border-slate-200/50 flex items-center justify-center bg-white flex-shrink-0">
-            <img src={logoImg} alt={siteConfig.name} className="w-full h-full object-contain p-0.5" />
+            <img src={logoImg} alt={businessName} className="w-full h-full object-contain p-0.5" />
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-bold text-slate-900 truncate">{siteConfig.name}</p>
+            <p className="text-sm font-bold text-slate-900 truncate">{businessName}</p>
             <p className="text-xs text-slate-500">{isTa ? 'நிர்வாகப் பலகை' : 'Admin Panel'}</p>
           </div>
         </div>
@@ -192,6 +194,7 @@ export const AdminTopbar: React.FC<AdminTopbarProps> = ({ activeView, onMenuOpen
   const viewTitles: Record<AdminView, { en: string; ta: string }> = {
     dashboard: { en: 'Dashboard', ta: 'டாஷ்போர்டு' },
     orders: { en: 'Order Management', ta: 'ஆர்டர்கள் மேலாண்மை' },
+    leads: { en: 'Customer Leads Management', ta: 'வாடிக்கையாளர் தொடர்புகள் (Customer Leads)' },
     'kitchen-sheet': { en: 'Kitchen Order Sheet', ta: 'சமையல் குறிப்பு தாள்' },
     dishes: { en: 'Dish Management', ta: 'உணவு வகைகள் மேலாண்மை' },
     inventory: { en: 'Grocery & Vegetable Inventory', ta: 'மளிகைப் பொருட்கள் மற்றும் காய்கறிகள்' },
