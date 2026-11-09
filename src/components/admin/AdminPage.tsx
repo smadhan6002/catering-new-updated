@@ -16,16 +16,49 @@ import { AdminRentalItems } from './AdminRentalItems';
 import { AdminInventory } from './AdminInventory';
 import { AdminSettings } from './AdminSettings';
 import type { AdminView } from './AdminSidebar';
+import { ChefHat } from 'lucide-react';
+import { useLanguage } from '../../context/LanguageContext';
 
 export const AdminPage: React.FC = () => {
-  const [isLoggedIn, setIsLoggedIn] = useState(authService.isLoggedIn());
+  const { businessName } = useLanguage();
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [activeView, setActiveView] = useState<AdminView>('dashboard');
   const [selectedKitchenOrderId, setSelectedKitchenOrderId] = useState<string | undefined>(undefined);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Re-check session whenever the component mounts
+  // Check Supabase session & admin authorization on mount, prevent flickering
   useEffect(() => {
-    setIsLoggedIn(authService.isLoggedIn());
+    let isMounted = true;
+
+    async function verifyAuth() {
+      try {
+        const { isAuthorized } = await authService.checkCurrentSession();
+        if (isMounted) {
+          setIsLoggedIn(isAuthorized);
+          setIsCheckingAuth(false);
+        }
+      } catch {
+        if (isMounted) {
+          setIsLoggedIn(false);
+          setIsCheckingAuth(false);
+        }
+      }
+    }
+
+    verifyAuth();
+
+    // Listen to live Supabase auth state changes
+    const unsubscribe = authService.onAuthStateChange((_event, _session, isAuthorized) => {
+      if (isMounted) {
+        setIsLoggedIn(isAuthorized);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, []);
 
   function handleLogin() {
@@ -33,14 +66,30 @@ export const AdminPage: React.FC = () => {
     setActiveView('dashboard');
   }
 
-  function handleLogout() {
-    authService.logout();
+  async function handleLogout() {
+    await authService.logout();
     setIsLoggedIn(false);
   }
 
   function handleNavigateToKitchenSheet(orderId?: string) {
     setSelectedKitchenOrderId(orderId);
     setActiveView('kitchen-sheet');
+  }
+
+  // Prevent login page flickering while resolving Supabase session
+  if (isCheckingAuth) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-slate-100 flex flex-col items-center justify-center p-4">
+        <div className="inline-flex items-center justify-center w-16 h-16 bg-primary rounded-2xl shadow-lg mb-4">
+          <ChefHat size={32} className="text-white animate-pulse" />
+        </div>
+        <h2 className="text-lg font-bold text-slate-800 mb-2">{businessName}</h2>
+        <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
+          <div className="w-3.5 h-3.5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+          <span>Verifying admin session…</span>
+        </div>
+      </div>
+    );
   }
 
   if (!isLoggedIn) {
