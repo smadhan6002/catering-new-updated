@@ -189,7 +189,7 @@ export const AdminDishes: React.FC = () => {
 
       if (editingDish) {
         // Edit existing dish (built-in or custom)
-        dishService.updateDish(editingDish.id, {
+        await dishService.updateDish(editingDish.id, {
           name: form.name.trim(),
           nameTa: form.nameTa.trim() || undefined,
           categoryId: form.categoryId,
@@ -200,7 +200,7 @@ export const AdminDishes: React.FC = () => {
         showToast(isTa ? 'உணவு விவரங்கள் வெற்றிகரமாக புதுப்பிக்கப்பட்டன!' : 'Dish updated successfully.');
       } else {
         // Add new custom dish
-        dishService.add({
+        await dishService.add({
           name: form.name.trim(),
           nameTa: form.nameTa.trim() || undefined,
           categoryId: form.categoryId,
@@ -211,26 +211,26 @@ export const AdminDishes: React.FC = () => {
       }
       loadDishes();
       closeForm();
-    } catch (err) {
-      setFormError(isTa ? 'உணவு சேமிப்பதில் பிழை ஏற்பட்டது.' : 'Failed to save dish. Please try again.');
+    } catch (err: any) {
+      setFormError((isTa ? 'உணவு சேமிப்பதில் பிழை ஏற்பட்டது: ' : 'Failed to save dish: ') + (err?.message || ''));
     } finally {
       setSaving(false);
     }
   }
 
-  function handleToggleActive(dish: UnifiedDish) {
+  async function handleToggleActive(dish: UnifiedDish) {
     if (dish.isActive) {
-      dishService.deactivateDish(dish.id);
+      await dishService.deactivateDish(dish.id);
       showToast(isTa ? `"${dish.name}" இணையதளத்திலிருந்து மறைக்கப்பட்டது.` : `"${dish.name}" hidden from customer menu.`);
     } else {
-      dishService.reactivateDish(dish.id);
+      await dishService.reactivateDish(dish.id);
       showToast(isTa ? `"${dish.name}" மீண்டும் இணையதளத்தில் காட்டப்படும்.` : `"${dish.name}" reactivated on customer menu.`);
     }
     loadDishes();
   }
 
-  function handleDelete(dish: UnifiedDish) {
-    dishService.deleteDish(dish.id);
+  async function handleDelete(dish: UnifiedDish) {
+    await dishService.deleteDish(dish.id);
     loadDishes();
     setDeleteConfirm(null);
     showToast(isTa ? `"${dish.name}" நீக்கப்பட்டது (வரலாற்று ஆர்டர்கள் பாதுகாக்கப்பட்டுள்ளன).` : `"${dish.name}" removed (historical orders preserved).`);

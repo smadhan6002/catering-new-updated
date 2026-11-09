@@ -1,12 +1,13 @@
 /**
  * inventoryService — Grocery & Vegetable Inventory Management System
- * Connected to Supabase (inventory_items, inventory_categories, purchase_documents, purchase_items)
+ * Connected to Supabase (inventory_items, purchase_documents, purchase_items)
  * with robust local cache fallback and exact decimal quantity preservation.
  */
 import type {
   InventoryCategory,
   InventoryItem,
   InventoryDocument,
+  InventoryDocumentItem,
 } from '../types/inventory';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
@@ -14,6 +15,17 @@ const INVENTORY_ITEMS_KEY = 'kanchi_inventory_items';
 const INVENTORY_CATEGORIES_KEY = 'kanchi_inventory_categories';
 const INVENTORY_DOCS_KEY = 'kanchi_inventory_documents';
 const INVENTORY_COUNTER_KEY = 'kanchi_inventory_counter';
+
+export function generateUUID(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
 
 export const DEFAULT_INVENTORY_CATEGORIES: InventoryCategory[] = [
   { id: 'cat-grocery', nameEn: 'Grocery Items', nameTa: 'மளிகைப் பொருட்கள்' },
@@ -168,59 +180,94 @@ export const INITIAL_INVENTORY_ITEMS: Omit<InventoryItem, 'id' | 'createdAt' | '
 
 export const inventoryService = {
   /**
-   * Synchronizes categories, items, and purchase docs from Supabase
+   * Synchronizes items and purchase documents from Supabase
    */
   async syncFromSupabase(): Promise<void> {
     if (!isSupabaseConfigured) return;
 
     try {
-      // 1. Categories
-      const { data: catData, error: catErr } = await supabase.from('inventory_categories').select('*');
-      if (!catErr && Array.isArray(catData) && catData.length > 0) {
-        const mappedCats: InventoryCategory[] = catData.map((c) => ({
-          id: c.id,
-          nameEn: c.name_en,
-          nameTa: c.name_ta,
-        }));
-        localStorage.setItem(INVENTORY_CATEGORIES_KEY, JSON.stringify(mappedCats));
-      }
-
-      // 2. Items
+      // 1. Items
       const { data: itemData, error: itemErr } = await supabase.from('inventory_items').select('*');
       if (!itemErr && Array.isArray(itemData) && itemData.length > 0) {
-        const mappedItems: InventoryItem[] = itemData.map((it) => ({
-          id: it.id,
-          nameEn: it.name_en,
-          nameTa: it.name_ta,
-          categoryId: it.category_id,
-          unit: it.unit,
-          stockQuantity: it.stock_quantity ?? undefined,
-          unitPrice: it.unit_price ?? undefined,
-          isActive: it.is_active ?? true,
-          createdAt: it.created_at,
-          updatedAt: it.updated_at,
-        }));
-        localStorage.setItem(INVENTORY_ITEMS_KEY, JSON.stringify(mappedItems));
+        const local = this.getItems();
+        const localMap = new Map(local.map((i) => [i.id, i]));
+
+        itemData.forEach((it) => {
+          localMap.set(it.id, {
+            id: it.id,
+            nameEn: it.name || it.name_en || '',
+            nameTa: it.tamil_name || it.name_ta || '',
+            categoryId: it.category || it.category_id || 'cat-grocery',
+            unit: it.unit || 'kg',
+            stockQuantity: it.stock_quantity != null ? Number(it.stock_quantity) : undefined,
+            unitPrice: it.unit_price != null ? Number(it.unit_price) : undefined,
+            isActive: it.is_active ?? true,
+            createdAt: it.created_at || new Date().toISOString(),
+            updatedAt: it.updated_at || it.created_at || new Date().toISOString(),
+          });
+        });
+
+        localStorage.setItem(INVENTORY_ITEMS_KEY, JSON.stringify(Array.from(localMap.values())));
       }
 
-      // 3. Purchase Documents
-      const { data: docData, error: docErr } = await supabase.from('purchase_documents').select('*');
+      // 2. Purchase Documents & Items
+      const { data: docData, error: docErr } = await supabase
+        .from('purchase_documents')
+        .select('*')
+        .order('created_at', { ascending: false });
+
       if (!docErr && Array.isArray(docData) && docData.length > 0) {
-        const mappedDocs: InventoryDocument[] = docData.map((d) => ({
-          id: d.id,
-          docNumber: d.doc_number || d.id,
-          title: d.title,
-          eventName: d.event_name,
-          customerName: d.customer_name || undefined,
-          eventDate: d.event_date || undefined,
-          documentDate: d.document_date,
-          preparedBy: d.prepared_by || undefined,
-          notes: d.notes || undefined,
-          language: d.language || 'both',
-          totalAmount: d.total_amount ? Number(d.total_amount) : undefined,
-          items: Array.isArray(d.items) ? d.items : [],
-          createdAt: d.created_at,
-        }));
+        const docIds = docData.map((d) => d.id);
+        const { data: itemRows } = await supabase
+          .from('purchase_items')
+          .select('*')
+          .in('document_id', docIds);
+
+        const itemsByDocId: Record<string, InventoryDocumentItem[]> = {};
+        if (Array.isArray(itemRows)) {
+          itemRows.forEach((r) => {
+            if (!itemsByDocId[r.document_id]) itemsByDocId[r.document_id] = [];
+            itemsByDocId[r.document_id].push({
+              id: r.id,
+              catalogueItemId: r.item_id || undefined,
+              nameEn: r.item_name || r.name_en || '',
+              nameTa: r.notes || r.name_ta || '',
+              quantity: r.quantity != null ? Number(r.quantity) : 0,
+              unit: r.unit || 'kg',
+              unitPrice: r.price != null ? Number(r.price) : undefined,
+              totalPrice: r.price != null && r.quantity != null ? Math.round(Number(r.price) * Number(r.quantity) * 100) / 100 : undefined,
+            });
+          });
+        }
+
+        const mappedDocs: InventoryDocument[] = docData.map((d) => {
+          let meta: Record<string, any> = {};
+          if (d.notes && d.notes.startsWith('{')) {
+            try {
+              meta = JSON.parse(d.notes);
+            } catch {
+              meta = {};
+            }
+          }
+
+          const docItems = itemsByDocId[d.id] || meta.items || (Array.isArray(d.items) ? d.items : []);
+          return {
+            id: d.id,
+            docNumber: meta.docNumber || d.doc_number || `DOC-${d.id.substring(0, 8)}`,
+            title: meta.title || d.title || 'Grocery Purchase Document',
+            eventName: meta.eventName || d.event_name || 'Catering Event',
+            customerName: meta.customerName || d.customer_name || undefined,
+            eventDate: meta.eventDate || d.event_date || undefined,
+            documentDate: d.document_date || new Date().toISOString().split('T')[0],
+            preparedBy: meta.preparedBy || d.prepared_by || undefined,
+            notes: meta.notes || (meta.docNumber ? undefined : d.notes) || undefined,
+            language: meta.language || d.language || 'both',
+            totalAmount: meta.totalAmount != null ? Number(meta.totalAmount) : (d.total_amount ? Number(d.total_amount) : undefined),
+            items: docItems,
+            createdAt: d.created_at || new Date().toISOString(),
+          };
+        });
+
         localStorage.setItem(INVENTORY_DOCS_KEY, JSON.stringify(mappedDocs));
       }
     } catch (err) {
@@ -248,11 +295,6 @@ export const inventoryService = {
     const newCat: InventoryCategory = { id, nameEn, nameTa };
     categories.push(newCat);
     localStorage.setItem(INVENTORY_CATEGORIES_KEY, JSON.stringify(categories));
-
-    if (isSupabaseConfigured) {
-      supabase.from('inventory_categories').insert({ id, name_en: nameEn, name_ta: nameTa }).then(() => {}, () => {});
-    }
-
     return newCat;
   },
 
@@ -262,9 +304,9 @@ export const inventoryService = {
       const stored = localStorage.getItem(INVENTORY_ITEMS_KEY);
       if (!stored) {
         const now = new Date().toISOString();
-        const initial = INITIAL_INVENTORY_ITEMS.map((item, idx) => ({
+        const initial = INITIAL_INVENTORY_ITEMS.map((item) => ({
           ...item,
-          id: `inv-${idx + 1}`,
+          id: generateUUID(),
           createdAt: now,
           updatedAt: now,
         }));
@@ -281,14 +323,16 @@ export const inventoryService = {
     return this.getItems().find((item) => item.id === id);
   },
 
-  addItem(
+  async addItem(
     itemData: Omit<InventoryItem, 'id' | 'createdAt' | 'updatedAt'>
-  ): InventoryItem {
+  ): Promise<InventoryItem> {
     const items = this.getItems();
     const now = new Date().toISOString();
+    const id = generateUUID();
+
     const newItem: InventoryItem = {
       ...itemData,
-      id: `inv-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      id,
       createdAt: now,
       updatedAt: now,
     };
@@ -296,57 +340,56 @@ export const inventoryService = {
     localStorage.setItem(INVENTORY_ITEMS_KEY, JSON.stringify(items));
 
     if (isSupabaseConfigured) {
-      supabase.from('inventory_items').insert({
-        id: newItem.id,
-        name_en: newItem.nameEn,
-        name_ta: newItem.nameTa,
-        category_id: newItem.categoryId,
+      const { error } = await supabase.from('inventory_items').insert({
+        id,
+        name: newItem.nameEn,
+        tamil_name: newItem.nameTa,
+        category: newItem.categoryId,
         unit: newItem.unit,
-        stock_quantity: newItem.stockQuantity || null,
-        unit_price: newItem.unitPrice || null,
-        is_active: newItem.isActive ?? true,
-      }).then(() => {}, () => {});
+      });
+      if (error) {
+        console.error('Failed to add item in Supabase:', error);
+        throw new Error(error.message);
+      }
     }
 
     return newItem;
   },
 
-  updateItem(item: InventoryItem): InventoryItem {
+  async updateItem(item: InventoryItem): Promise<InventoryItem> {
     const items = this.getItems();
     const index = items.findIndex((i) => i.id === item.id);
+    const now = new Date().toISOString();
+    const updated = {
+      ...item,
+      updatedAt: now,
+    };
+
     if (index !== -1) {
-      items[index] = {
-        ...item,
-        updatedAt: new Date().toISOString(),
-      };
+      items[index] = updated;
       localStorage.setItem(INVENTORY_ITEMS_KEY, JSON.stringify(items));
-
-      if (isSupabaseConfigured) {
-        supabase.from('inventory_items').upsert({
-          id: item.id,
-          name_en: item.nameEn,
-          name_ta: item.nameTa,
-          category_id: item.categoryId,
-          unit: item.unit,
-          stock_quantity: item.stockQuantity || null,
-          unit_price: item.unitPrice || null,
-          is_active: item.isActive ?? true,
-          updated_at: items[index].updatedAt,
-        }, { onConflict: 'id' }).then(() => {}, () => {});
-      }
-
-      return items[index];
     }
-    return item;
+
+    if (isSupabaseConfigured && item.id.length >= 32 && item.id.includes('-')) {
+      const { error } = await supabase.from('inventory_items').update({
+        name: item.nameEn,
+        tamil_name: item.nameTa,
+        category: item.categoryId,
+        unit: item.unit,
+      }).eq('id', item.id);
+      if (error) console.warn('Supabase item update warning:', error.message);
+    }
+
+    return updated;
   },
 
-  deleteItem(id: string): boolean {
+  async deleteItem(id: string): Promise<boolean> {
     const items = this.getItems();
     const filtered = items.filter((i) => i.id !== id);
     if (filtered.length !== items.length) {
       localStorage.setItem(INVENTORY_ITEMS_KEY, JSON.stringify(filtered));
-      if (isSupabaseConfigured) {
-        supabase.from('inventory_items').delete().eq('id', id).then(() => {}, () => {});
+      if (isSupabaseConfigured && id.length >= 32 && id.includes('-')) {
+        await supabase.from('inventory_items').delete().eq('id', id);
       }
       return true;
     }
@@ -386,15 +429,17 @@ export const inventoryService = {
     return `DOC-${dateStr}-${String(counter).padStart(3, '0')}`;
   },
 
-  saveDocument(
+  async saveDocument(
     docData: Omit<InventoryDocument, 'id' | 'docNumber' | 'createdAt'> & {
       id?: string;
       docNumber?: string;
     }
-  ): InventoryDocument {
+  ): Promise<InventoryDocument> {
     const docs = this.getDocuments();
     const now = new Date().toISOString();
-    const id = docData.id || `invdoc-${Date.now()}`;
+    const id = docData.id && docData.id.length >= 32 && docData.id.includes('-')
+      ? docData.id
+      : generateUUID();
     const docNumber = docData.docNumber || this.createDocumentNumber();
 
     let totalAmount: number | undefined = undefined;
@@ -409,6 +454,8 @@ export const inventoryService = {
       }
       return {
         ...it,
+        id: it.id && it.id.length >= 32 && it.id.includes('-') ? it.id : generateUUID(),
+        quantity: qVal,
         totalPrice: itemTotal,
       };
     });
@@ -428,54 +475,73 @@ export const inventoryService = {
     } else {
       docs.unshift(newDoc);
     }
-
     localStorage.setItem(INVENTORY_DOCS_KEY, JSON.stringify(docs));
 
-    // Save to Supabase
+    // Save to Supabase purchase_documents & purchase_items
     if (isSupabaseConfigured) {
-      supabase.from('purchase_documents').upsert({
-        id: newDoc.id,
+      const meta = {
+        docNumber,
         title: newDoc.title,
-        event_name: newDoc.eventName,
-        customer_name: newDoc.customerName || null,
-        event_date: newDoc.eventDate || null,
-        document_date: newDoc.documentDate,
-        prepared_by: newDoc.preparedBy || null,
+        eventName: newDoc.eventName,
+        customerName: newDoc.customerName || null,
+        eventDate: newDoc.eventDate || null,
+        preparedBy: newDoc.preparedBy || null,
         notes: newDoc.notes || null,
         language: newDoc.language || 'both',
-        total_amount: newDoc.totalAmount || 0,
-        items: newDoc.items,
-        created_at: newDoc.createdAt,
-      }, { onConflict: 'id' }).then(async ({ error }) => {
-        if (!error && Array.isArray(newDoc.items)) {
-          const itemRows = newDoc.items.map((it) => ({
-            id: it.id || `pit-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-            document_id: newDoc.id,
-            catalogue_item_id: it.catalogueItemId || null,
-            name_en: it.nameEn,
-            name_ta: it.nameTa,
-            category_name_en: it.categoryNameEn || null,
-            category_name_ta: it.categoryNameTa || null,
-            quantity: typeof it.quantity === 'number' ? it.quantity : parseFloat(String(it.quantity)) || 0,
-            unit: it.unit,
-            unit_price: it.unitPrice || null,
-            total_price: it.totalPrice || null,
-          }));
-          await supabase.from('purchase_items').upsert(itemRows, { onConflict: 'id' });
+        totalAmount: totalAmount || null,
+      };
+
+      const { error: docErr } = await supabase.from('purchase_documents').upsert({
+        id,
+        document_date: newDoc.documentDate || now.split('T')[0],
+        notes: JSON.stringify(meta),
+      }, { onConflict: 'id' });
+
+      if (docErr) {
+        console.error('Failed to save purchase document to Supabase:', docErr);
+        throw new Error(docErr.message);
+      }
+
+      // Delete prior items if updating
+      await supabase.from('purchase_items').delete().eq('document_id', id);
+
+      if (itemsWithTotals.length > 0) {
+        const itemRows = itemsWithTotals.map((it) => ({
+          id: it.id,
+          document_id: id,
+          item_id: it.catalogueItemId && it.catalogueItemId.length >= 32 && it.catalogueItemId.includes('-')
+            ? it.catalogueItemId
+            : null,
+          item_name: it.nameEn,
+          quantity: it.quantity,
+          unit: it.unit,
+          price: it.unitPrice || null,
+          notes: it.nameTa || it.notes || null,
+        }));
+
+        const { error: itemErr } = await supabase.from('purchase_items').insert(itemRows);
+        if (itemErr) {
+          console.error('Failed to insert purchase items to Supabase:', itemErr);
+          throw new Error(itemErr.message);
         }
-      }, () => {});
+      }
     }
 
     return newDoc;
   },
 
-  deleteDocument(id: string): boolean {
+  async deleteDocument(id: string): Promise<boolean> {
     const docs = this.getDocuments();
     const filtered = docs.filter((d) => d.id !== id);
     if (filtered.length !== docs.length) {
       localStorage.setItem(INVENTORY_DOCS_KEY, JSON.stringify(filtered));
       if (isSupabaseConfigured) {
-        supabase.from('purchase_documents').delete().eq('id', id).then(() => {}, () => {});
+        await supabase.from('purchase_items').delete().eq('document_id', id);
+        const { error } = await supabase.from('purchase_documents').delete().eq('id', id);
+        if (error) {
+          console.error('Failed to delete purchase document in Supabase:', error);
+          return false;
+        }
       }
       return true;
     }
@@ -531,5 +597,5 @@ export const inventoryService = {
 if (typeof window !== 'undefined' && isSupabaseConfigured) {
   setTimeout(() => {
     inventoryService.syncFromSupabase().catch(() => {});
-  }, 1800);
+  }, 1200);
 }

@@ -74,6 +74,7 @@ export const AdminLeads: React.FC<AdminLeadsProps> = ({ onNavigateToOrders }) =>
   const [rescheduleLead, setRescheduleLead] = useState<CustomerLead | null>(null);
   const [convertingLead, setConvertingLead] = useState<CustomerLead | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Form state for Add / Edit
   const [formData, setFormData] = useState({
@@ -218,7 +219,7 @@ export const AdminLeads: React.FC<AdminLeadsProps> = ({ onNavigateToOrders }) =>
   };
 
   // Save Lead
-  const handleSaveLead = (e: React.FormEvent) => {
+  const handleSaveLead = async (e: React.FormEvent) => {
     e.preventDefault();
     const errors: Record<string, string> = {};
 
@@ -238,94 +239,123 @@ export const AdminLeads: React.FC<AdminLeadsProps> = ({ onNavigateToOrders }) =>
       return;
     }
 
-    leadService.saveLead({
-      ...(editingLead ? { id: editingLead.id, leadNumber: editingLead.leadNumber } : {}),
-      customerName: formData.customerName.trim(),
-      mobile: cleanMobile,
-      alternativeMobile: formData.alternativeMobile.trim() || undefined,
-      eventType: formData.eventType,
-      eventDate: formData.eventDate || undefined,
-      expectedGuestCount: formData.expectedGuestCount ? Number(formData.expectedGuestCount) : undefined,
-      customerRequirement: formData.customerRequirement.trim() || undefined,
-      discussionDetails: formData.discussionDetails.trim(),
-      followUpDate: formData.followUpDate || undefined,
-      followUpTime: formData.followUpDate ? formData.followUpTime : undefined,
-      status: formData.status,
-      additionalNotes: formData.additionalNotes.trim() || undefined,
-    });
+    setIsSubmitting(true);
+    try {
+      await leadService.saveLead({
+        ...(editingLead ? { id: editingLead.id, leadNumber: editingLead.leadNumber } : {}),
+        customerName: formData.customerName.trim(),
+        mobile: cleanMobile,
+        alternativeMobile: formData.alternativeMobile.trim() || undefined,
+        eventType: formData.eventType,
+        eventDate: formData.eventDate || undefined,
+        expectedGuestCount: formData.expectedGuestCount ? Number(formData.expectedGuestCount) : undefined,
+        customerRequirement: formData.customerRequirement.trim() || undefined,
+        discussionDetails: formData.discussionDetails.trim(),
+        followUpDate: formData.followUpDate || undefined,
+        followUpTime: formData.followUpDate ? formData.followUpTime : undefined,
+        status: formData.status,
+        additionalNotes: formData.additionalNotes.trim() || undefined,
+      });
 
-    setIsAddEditOpen(false);
-    refreshLeads();
+      setIsAddEditOpen(false);
+      refreshLeads();
+    } catch (err: any) {
+      alert((lang === 'ta' ? 'சேமிக்க முடியவில்லை: ' : 'Failed to save lead: ') + (err?.message || 'Unknown error'));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // Delete Lead
-  const handleDeleteLead = (id: string) => {
-    leadService.deleteLead(id);
-    setDeleteConfirmId(null);
-    if (viewingLead?.id === id) setViewingLead(null);
-    refreshLeads();
+  const handleDeleteLead = async (id: string) => {
+    setIsSubmitting(true);
+    try {
+      await leadService.deleteLead(id);
+      setDeleteConfirmId(null);
+      if (viewingLead?.id === id) setViewingLead(null);
+      refreshLeads();
+    } catch (err: any) {
+      alert((lang === 'ta' ? 'நீக்க முடியவில்லை: ' : 'Failed to delete lead: ') + (err?.message || 'Unknown error'));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // Add discussion entry
-  const handleAddDiscussionEntry = (e: React.FormEvent) => {
+  const handleAddDiscussionEntry = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!viewingLead || !newDiscussion.details.trim()) return;
 
-    leadService.addDiscussion(
-      viewingLead.id,
-      {
-        date: new Date().toISOString().split('T')[0],
-        time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-        discussionDetails: newDiscussion.details.trim(),
-        customerRequirement: newDiscussion.customerRequirement.trim() || undefined,
-        agreedNextAction: newDiscussion.agreedNextAction.trim() || undefined,
-        nextFollowUpDate: newDiscussion.nextFollowUpDate || undefined,
-      },
-      newDiscussion.newStatus || undefined
-    );
+    setIsSubmitting(true);
+    try {
+      await leadService.addDiscussion(
+        viewingLead.id,
+        {
+          date: new Date().toISOString().split('T')[0],
+          time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+          discussionDetails: newDiscussion.details.trim(),
+          customerRequirement: newDiscussion.customerRequirement.trim() || undefined,
+          agreedNextAction: newDiscussion.agreedNextAction.trim() || undefined,
+          nextFollowUpDate: newDiscussion.nextFollowUpDate || undefined,
+        },
+        newDiscussion.newStatus || undefined
+      );
 
-    setNewDiscussion({
-      details: '',
-      customerRequirement: '',
-      agreedNextAction: '',
-      nextFollowUpDate: '',
-      nextFollowUpTime: '11:00 AM',
-      newStatus: '',
-    });
+      setNewDiscussion({
+        details: '',
+        customerRequirement: '',
+        agreedNextAction: '',
+        nextFollowUpDate: '',
+        nextFollowUpTime: '11:00 AM',
+        newStatus: '',
+      });
 
-    refreshLeads();
+      refreshLeads();
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // Reschedule follow-up
-  const handleRescheduleSubmit = (e: React.FormEvent) => {
+  const handleRescheduleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!rescheduleLead || !rescheduleData.date) return;
 
-    leadService.updateFollowUp(
-      rescheduleLead.id,
-      rescheduleData.date,
-      rescheduleData.time,
-      'Follow-up Required'
-    );
+    setIsSubmitting(true);
+    try {
+      await leadService.updateFollowUp(
+        rescheduleLead.id,
+        rescheduleData.date,
+        rescheduleData.time,
+        'Follow-up Required'
+      );
 
-    if (rescheduleData.note.trim()) {
-      leadService.addDiscussion(rescheduleLead.id, {
-        date: new Date().toISOString().split('T')[0],
-        time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-        discussionDetails: `Rescheduled follow-up to ${rescheduleData.date}: ${rescheduleData.note.trim()}`,
-        nextFollowUpDate: rescheduleData.date,
-      });
+      if (rescheduleData.note.trim()) {
+        await leadService.addDiscussion(rescheduleLead.id, {
+          date: new Date().toISOString().split('T')[0],
+          time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+          discussionDetails: `Rescheduled follow-up to ${rescheduleData.date}: ${rescheduleData.note.trim()}`,
+          nextFollowUpDate: rescheduleData.date,
+        });
+      }
+
+      setRescheduleLead(null);
+      setRescheduleData({ date: '', time: '11:00 AM', note: '' });
+      refreshLeads();
+    } finally {
+      setIsSubmitting(false);
     }
-
-    setRescheduleLead(null);
-    setRescheduleData({ date: '', time: '11:00 AM', note: '' });
-    refreshLeads();
   };
 
   // Mark follow-up completed
-  const handleMarkFollowUpCompleted = (lead: CustomerLead) => {
-    leadService.markFollowUpCompleted(lead.id, 'Follow-up call completed');
-    refreshLeads();
+  const handleMarkFollowUpCompleted = async (lead: CustomerLead) => {
+    setIsSubmitting(true);
+    try {
+      await leadService.markFollowUpCompleted(lead.id, 'Follow-up call completed');
+      refreshLeads();
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // WhatsApp click handler
@@ -344,14 +374,14 @@ export const AdminLeads: React.FC<AdminLeadsProps> = ({ onNavigateToOrders }) =>
   };
 
   // Convert to order completed
-  const handleOrderSavedFromLead = (newOrder: Order) => {
+  const handleOrderSavedFromLead = async (newOrder: Order) => {
     if (convertingLead) {
-      leadService.saveLead({
+      await leadService.saveLead({
         ...convertingLead,
         status: 'Confirmed',
         convertedToOrderId: newOrder.id,
       });
-      leadService.addDiscussion(convertingLead.id, {
+      await leadService.addDiscussion(convertingLead.id, {
         date: new Date().toISOString().split('T')[0],
         time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
         discussionDetails: `Successfully converted lead to Order #${newOrder.id} for ₹${newOrder.totalAmount?.toLocaleString('en-IN') || 0}.`,
@@ -1195,15 +1225,14 @@ export const AdminLeads: React.FC<AdminLeadsProps> = ({ onNavigateToOrders }) =>
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2 bg-primary hover:bg-[#c2410c] text-white rounded-lg text-sm font-semibold shadow-md transition-colors"
+                  disabled={isSubmitting}
+                  className="px-6 py-2 bg-primary hover:bg-[#c2410c] text-white rounded-lg text-sm font-semibold shadow-md transition-colors disabled:opacity-50"
                 >
-                  {editingLead
-                    ? lang === 'ta'
-                      ? 'புதுப்பிக்க'
-                      : 'Update Lead'
-                    : lang === 'ta'
-                    ? 'சேமிக்க'
-                    : 'Save Lead'}
+                  {isSubmitting
+                    ? (lang === 'ta' ? 'சேமிக்கப்படுகிறது...' : 'Saving...')
+                    : (editingLead
+                        ? (lang === 'ta' ? 'புதுப்பிக்க' : 'Update Lead')
+                        : (lang === 'ta' ? 'சேமிக்க' : 'Save Lead'))}
                 </button>
               </div>
             </form>

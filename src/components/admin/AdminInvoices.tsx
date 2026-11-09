@@ -21,10 +21,10 @@ export const AdminInvoices: React.FC = () => {
     setOrders(all.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
   }, []);
 
-  function handleDownload(order: Order) {
+  async function handleDownload(order: Order) {
     setDownloading(order.id);
     try {
-      const invoice = invoiceService.create(order.id);
+      const invoice = await invoiceService.create(order.id);
       generateInvoicePDF(order, invoice);
     } finally {
       setTimeout(() => setDownloading(null), 1000);

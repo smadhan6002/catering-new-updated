@@ -146,9 +146,9 @@ export const AdminRentalItems: React.FC = () => {
     setReturnNotes('');
   }
 
-  function handleConfirmReturn() {
+  async function handleConfirmReturn() {
     if (!returnModalDoc) return;
-    rentalService.updateStatus(returnModalDoc.id, 'Returned', actualReturnDate, returnNotes);
+    await rentalService.updateStatus(returnModalDoc.id, 'Returned', actualReturnDate, returnNotes);
     showToast(
       isTa
         ? `வாடகை ஆவணம் ${returnModalDoc.rentalNumber} திரும்பப் பெறப்பட்டது என குறிக்கப்பட்டது!`
@@ -158,8 +158,8 @@ export const AdminRentalItems: React.FC = () => {
     reloadAll();
   }
 
-  function handleDeleteDocument(doc: RentalDocument) {
-    rentalService.deleteDocument(doc.id);
+  async function handleDeleteDocument(doc: RentalDocument) {
+    await rentalService.deleteDocument(doc.id);
     setDeleteDocConfirm(null);
     showToast(isTa ? `வாடகை ஆவணம் ${doc.rentalNumber} நீக்கப்பட்டது.` : `Document ${doc.rentalNumber} deleted.`);
     reloadAll();
@@ -205,7 +205,7 @@ export const AdminRentalItems: React.FC = () => {
     setItemModalOpen(true);
   }
 
-  function handleSaveItem() {
+  async function handleSaveItem() {
     setItemFormError('');
     if (!itemForm.nameEn.trim() && !itemForm.nameTa.trim()) {
       setItemFormError(isTa ? 'பொருளின் பெயர் (ஆங்கிலம் அல்லது தமிழ்) அவசியம்.' : 'Item name (English or Tamil) is required.');
@@ -227,7 +227,7 @@ export const AdminRentalItems: React.FC = () => {
     setItemSaving(true);
     try {
       if (editingItemId) {
-        rentalService.updateItem(editingItemId, {
+        await rentalService.updateItem(editingItemId, {
           code: itemForm.code.trim(),
           nameEn: itemForm.nameEn.trim() || itemForm.nameTa.trim(),
           nameTa: itemForm.nameTa.trim() || itemForm.nameEn.trim(),
@@ -242,7 +242,7 @@ export const AdminRentalItems: React.FC = () => {
         });
         showToast(isTa ? 'வாடகை பொருள் புதுப்பிக்கப்பட்டது!' : 'Rental item updated successfully.');
       } else {
-        rentalService.addItem({
+        await rentalService.addItem({
           code: itemForm.code.trim(),
           nameEn: itemForm.nameEn.trim() || itemForm.nameTa.trim(),
           nameTa: itemForm.nameTa.trim() || itemForm.nameEn.trim(),
@@ -266,8 +266,8 @@ export const AdminRentalItems: React.FC = () => {
     }
   }
 
-  function handleDeleteItem(item: RentalItem) {
-    const res = rentalService.deleteItem(item.id);
+  async function handleDeleteItem(item: RentalItem) {
+    const res = await rentalService.deleteItem(item.id);
     setDeleteItemConfirm(null);
     if (res.softDeleted) {
       showToast(
@@ -281,8 +281,8 @@ export const AdminRentalItems: React.FC = () => {
     reloadAll();
   }
 
-  function handleToggleItemActive(item: RentalItem) {
-    rentalService.updateItem(item.id, { isActive: !item.isActive });
+  async function handleToggleItemActive(item: RentalItem) {
+    await rentalService.updateItem(item.id, { isActive: !item.isActive });
     showToast(item.isActive ? 'Item deactivated.' : 'Item reactivated.');
     reloadAll();
   }

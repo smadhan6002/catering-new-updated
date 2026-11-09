@@ -5,6 +5,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { generateWhatsAppLink } from '../utils/whatsapp';
 import { orderService } from '../services/orderService';
 import { customerService } from '../services/customerService';
+import { messageService } from '../services/messageService';
 import type { OrderItem } from '../types/admin';
 
 interface InquiryFormModalProps {
@@ -95,6 +96,16 @@ export const InquiryFormModal: React.FC<InquiryFormModalProps> = ({ isOpen, onCl
         status: 'Pending',
         notes: formData.notes.trim(),
       });
+
+      // Also record in customer_messages table
+      messageService.submitMessage({
+        customerName: formData.name.trim(),
+        phone: formData.phone.replace(/\s/g, ''),
+        eventType: formData.eventType.trim(),
+        eventDate: formData.eventDate,
+        guestCount: guestCount || undefined,
+        message: formData.notes.trim() || `Website inquiry for ${formData.eventType || 'Event'} at ${formData.eventAddress.trim()}`,
+      }).catch((e) => console.warn('Customer message record error:', e));
 
       const displayNum = order.orderNumber || order.id;
       setOrderId(displayNum);

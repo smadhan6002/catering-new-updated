@@ -220,7 +220,7 @@ export const AdminInventory: React.FC = () => {
     setIsItemModalOpen(true);
   }
 
-  function handleSaveItem(e: React.FormEvent) {
+  async function handleSaveItem(e: React.FormEvent) {
     e.preventDefault();
     setFormError('');
 
@@ -248,7 +248,7 @@ export const AdminInventory: React.FC = () => {
     }
 
     if (editingItem) {
-      inventoryService.updateItem({
+      await inventoryService.updateItem({
         ...editingItem,
         nameEn: formNameEn.trim(),
         nameTa: formNameTa.trim() || formNameEn.trim(),
@@ -263,7 +263,7 @@ export const AdminInventory: React.FC = () => {
         notes: formNotes.trim() || undefined,
       });
     } else {
-      inventoryService.addItem({
+      await inventoryService.addItem({
         nameEn: formNameEn.trim(),
         nameTa: formNameTa.trim() || formNameEn.trim(),
         categoryId: formCategory,
@@ -282,8 +282,8 @@ export const AdminInventory: React.FC = () => {
     loadData();
   }
 
-  function handleDeleteItem(item: InventoryItem) {
-    inventoryService.deleteItem(item.id);
+  async function handleDeleteItem(item: InventoryItem) {
+    await inventoryService.deleteItem(item.id);
     setDeleteConfirmItem(null);
     loadData();
   }
@@ -451,7 +451,7 @@ export const AdminInventory: React.FC = () => {
     setMissingQtyItemIds((prev) => prev.filter((mId) => mId !== id));
   }
 
-  function handleSaveAndPreviewDocument() {
+  async function handleSaveAndPreviewDocument() {
     if (!docEventName.trim()) {
       alert(isTa ? 'தயவுசெய்து நிகழ்வு / சுபமுகூர்த்த பெயரை உள்ளிடவும்.' : 'Please enter the event / function name.');
       return;
@@ -509,7 +509,7 @@ export const AdminInventory: React.FC = () => {
       };
     });
 
-    const saved = inventoryService.saveDocument({
+    const saved = await inventoryService.saveDocument({
       title: docTitle.trim() || 'Grocery & Vegetable Purchase List',
       eventName: docEventName.trim(),
       customerName: docCustomerName.trim() || undefined,
@@ -541,8 +541,8 @@ export const AdminInventory: React.FC = () => {
     }
   }
 
-  function handleDeleteDocument(doc: InventoryDocument) {
-    inventoryService.deleteDocument(doc.id);
+  async function handleDeleteDocument(doc: InventoryDocument) {
+    await inventoryService.deleteDocument(doc.id);
     setDeleteConfirmDoc(null);
     setDocuments(inventoryService.getDocuments());
     if (previewDoc?.id === doc.id) {

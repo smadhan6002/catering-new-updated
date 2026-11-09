@@ -1,7 +1,7 @@
 /**
  * dishService — unified dish catalogue & persistence manager
  * Handles both built-in dishes (with editable overrides) and custom admin-added dishes.
- * Fully connected to Supabase database & storage with instant local fallback.
+ * Fully connected to Supabase database (dishes & categories) with instant local fallback.
  */
 import type { AdminDish } from '../types/admin';
 import { categories as staticCategories } from '../data/menu';
@@ -10,11 +10,46 @@ import { ta } from '../locales/ta';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 const DISHES_KEY = 'annapoorna_admin_dishes';
-const DISH_COUNTER_KEY = 'annapoorna_dish_counter';
 const UNIT_OVERRIDES_KEY = 'annapoorna_dish_unit_overrides';
 const DISH_OVERRIDES_KEY = 'annapoorna_dish_overrides';
 const DISH_TAMIL_NAMES_KEY = 'annapoorna_dish_tamil_names';
 const DEACTIVATED_DISHES_KEY = 'annapoorna_deactivated_dishes';
+
+export function generateUUID(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+export const CATEGORY_UUID_MAP: Record<string, string> = {
+  'starters': 'c0000000-0000-0000-0000-000000000001',
+  'bonda-bajji': 'c0000000-0000-0000-0000-000000000002',
+  'beverages': 'c0000000-0000-0000-0000-000000000003',
+  'variety-rice': 'c0000000-0000-0000-0000-000000000004',
+  'meals-sides': 'c0000000-0000-0000-0000-000000000005',
+  'vada-varieties': 'c0000000-0000-0000-0000-000000000006',
+  'payasam-varieties': 'c0000000-0000-0000-0000-000000000007',
+  'indian-breads': 'c0000000-0000-0000-0000-000000000008',
+  'gravy-varieties': 'c0000000-0000-0000-0000-000000000009',
+  'halwa-sweets': 'c0000000-0000-0000-0000-000000000010',
+  'sweets': 'c0000000-0000-0000-0000-000000000011',
+  'tiffin': 'c0000000-0000-0000-0000-000000000012',
+  'accompaniments': 'c0000000-0000-0000-0000-000000000013',
+  'special-counters': 'c0000000-0000-0000-0000-000000000014',
+};
+
+const UUID_TO_CATEGORY_MAP: Record<string, string> = Object.entries(CATEGORY_UUID_MAP).reduce(
+  (acc, [slug, uuid]) => {
+    acc[uuid] = slug;
+    return acc;
+  },
+  {} as Record<string, string>
+);
 
 export interface DishUnitOverride {
   defaultUnit: string;
@@ -43,69 +78,75 @@ export interface UnifiedDish {
   isActive: boolean;
 }
 
-function getDishCounter(): number {
-  return parseInt(localStorage.getItem(DISH_COUNTER_KEY) || '0', 10);
+function resolveCategoryUUID(slugOrUuid: string): string {
+  if (CATEGORY_UUID_MAP[slugOrUuid]) {
+    return CATEGORY_UUID_MAP[slugOrUuid];
+  }
+  return slugOrUuid;
 }
 
-function generateDishId(): string {
-  const n = getDishCounter() + 1;
-  localStorage.setItem(DISH_COUNTER_KEY, String(n));
-  return `adm-${String(n).padStart(4, '0')}`;
+function resolveCategorySlug(uuidOrSlug: string): string {
+  if (UUID_TO_CATEGORY_MAP[uuidOrSlug]) {
+    return UUID_TO_CATEGORY_MAP[uuidOrSlug];
+  }
+  return uuidOrSlug;
 }
 
 export const dishService = {
   /**
-   * Synchronizes dishes and overrides from Supabase
+   * Synchronizes categories and dishes from Supabase
    */
   async syncFromSupabase(): Promise<void> {
     if (!isSupabaseConfigured) return;
 
     try {
-      // 1. Fetch custom dishes
+      // 1. Fetch categories
+      const { error: catErr } = await supabase.from('categories').select('*');
+      if (catErr) {
+        console.warn('Failed to fetch categories:', catErr.message);
+      }
+
+      // 2. Fetch dishes from Supabase
       const { data: dishesData, error: dishErr } = await supabase
         .from('dishes')
         .select('*');
 
       if (!dishErr && Array.isArray(dishesData)) {
-        const adminDishes: AdminDish[] = dishesData
-          .filter((d) => d.is_admin_added)
-          .map((d) => ({
-            id: d.id,
-            name: d.name,
-            categoryId: d.category_id,
-            image: d.image || '',
+        const local = this.getAll();
+        const localMap = new Map(local.map((d) => [d.id, d]));
+        const overrides = this.getOverrides();
+
+        dishesData.forEach((row) => {
+          const categorySlug = resolveCategorySlug(row.category_id);
+          const isDeactivated = row.is_available === false;
+
+          // If dish is an admin custom dish
+          const adminDish: AdminDish = {
+            id: row.id,
+            name: row.name,
+            categoryId: categorySlug,
+            image: row.image_url || row.image || '',
             isAdminAdded: true,
-            defaultUnit: d.default_unit || 'kg',
-            supportedUnits: d.supported_units || undefined,
-          }));
+            defaultUnit: row.default_unit || 'Pieces',
+          };
+          localMap.set(row.id, adminDish);
 
-        if (adminDishes.length > 0) {
-          const local = this.getAll();
-          const localMap = new Map(local.map((d) => [d.id, d]));
-          adminDishes.forEach((d) => localMap.set(d.id, d));
-          localStorage.setItem(DISHES_KEY, JSON.stringify(Array.from(localMap.values())));
-        }
-      }
+          if (row.tamil_name || row.name_ta) {
+            this.setCustomTamilName(row.id, row.tamil_name || row.name_ta);
+          }
 
-      // 2. Fetch overrides
-      const { data: overrideData, error: ovrErr } = await supabase
-        .from('dish_overrides')
-        .select('*');
-
-      if (!ovrErr && Array.isArray(overrideData)) {
-        const allOverrides = this.getOverrides();
-        overrideData.forEach((row) => {
-          allOverrides[row.dish_id] = {
-            ...(allOverrides[row.dish_id] || {}),
-            name: row.name || undefined,
-            nameTa: row.name_ta || undefined,
-            categoryId: row.category_id || undefined,
-            image: row.image || undefined,
-            defaultUnit: row.default_unit || undefined,
-            isActive: row.is_active ?? true,
+          overrides[row.id] = {
+            ...(overrides[row.id] || {}),
+            name: row.name,
+            nameTa: row.tamil_name || row.name_ta || undefined,
+            categoryId: categorySlug,
+            image: row.image_url || row.image || undefined,
+            isActive: !isDeactivated,
           };
         });
-        localStorage.setItem(DISH_OVERRIDES_KEY, JSON.stringify(allOverrides));
+
+        localStorage.setItem(DISHES_KEY, JSON.stringify(Array.from(localMap.values())));
+        localStorage.setItem(DISH_OVERRIDES_KEY, JSON.stringify(overrides));
       }
     } catch (err) {
       console.warn('Dish sync error:', err);
@@ -132,23 +173,6 @@ export const dishService = {
     const allOverrides = this.getOverrides();
     allOverrides[dishId] = { ...(allOverrides[dishId] || {}), ...changes };
     localStorage.setItem(DISH_OVERRIDES_KEY, JSON.stringify(allOverrides));
-
-    // Save to Supabase
-    if (isSupabaseConfigured) {
-      supabase
-        .from('dish_overrides')
-        .upsert({
-          dish_id: dishId,
-          name: changes.name || null,
-          name_ta: changes.nameTa || null,
-          category_id: changes.categoryId || null,
-          image: changes.image || null,
-          default_unit: changes.defaultUnit || null,
-          is_active: changes.isActive ?? true,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'dish_id' })
-        .then(() => {}, () => {});
-    }
   },
 
   getDeactivatedDishIds(): string[] {
@@ -270,11 +294,13 @@ export const dishService = {
     return this.getAllDishes().find((d) => d.id === id);
   },
 
-  add(data: Omit<AdminDish, 'id' | 'isAdminAdded'> & { nameTa?: string }): AdminDish {
+  async add(data: Omit<AdminDish, 'id' | 'isAdminAdded'> & { nameTa?: string }): Promise<AdminDish> {
     const dishes = this.getAll();
-    const dishId = generateDishId();
+    const dishUuid = generateUUID();
+    const categoryUuid = resolveCategoryUUID(data.categoryId);
+
     const dish: AdminDish = {
-      id: dishId,
+      id: dishUuid,
       name: data.name,
       categoryId: data.categoryId,
       image: data.image,
@@ -285,38 +311,34 @@ export const dishService = {
     localStorage.setItem(DISHES_KEY, JSON.stringify(dishes));
 
     if (data.nameTa) {
-      this.setCustomTamilName(dishId, data.nameTa);
+      this.setCustomTamilName(dishUuid, data.nameTa);
     }
     if (data.defaultUnit) {
-      this.setUnitOverride(dishId, data.defaultUnit);
+      this.setUnitOverride(dishUuid, data.defaultUnit);
     }
 
-    // Persist to Supabase
+    // Persist to Supabase dishes table
     if (isSupabaseConfigured) {
-      supabase
-        .from('dishes')
-        .insert({
-          id: dishId,
-          name: data.name,
-          name_ta: data.nameTa || data.name,
-          category_id: data.categoryId,
-          image: data.image || null,
-          is_admin_added: true,
-          default_unit: data.defaultUnit || 'kg',
-          is_active: true,
-        })
-        .then(
-          ({ error }) => {
-            if (error) console.warn('Supabase add dish error:', error.message);
-          },
-          () => {}
-        );
+      const { error } = await supabase.from('dishes').insert({
+        id: dishUuid,
+        name: data.name,
+        tamil_name: data.nameTa || data.name,
+        category_id: categoryUuid,
+        image_url: data.image || null,
+        price: 0,
+        is_available: true,
+      });
+
+      if (error) {
+        console.error('Failed to insert dish in Supabase:', error);
+        throw new Error(error.message);
+      }
     }
 
     return dish;
   },
 
-  updateDish(
+  async updateDish(
     id: string,
     changes: {
       name?: string;
@@ -326,7 +348,7 @@ export const dishService = {
       defaultUnit?: string;
       isActive?: boolean;
     }
-  ): void {
+  ): Promise<void> {
     this.setOverride(id, changes);
 
     const dishes = this.getAll();
@@ -351,36 +373,43 @@ export const dishService = {
 
     if (changes.isActive !== undefined) {
       if (changes.isActive) {
-        this.reactivateDish(id);
+        await this.reactivateDish(id);
       } else {
-        this.deactivateDish(id);
+        await this.deactivateDish(id);
       }
     }
 
-    // Sync to Supabase
+    // Update in Supabase
     if (isSupabaseConfigured) {
-      supabase
-        .from('dishes')
-        .upsert({
-          id,
+      // If this is a valid UUID, update or upsert in dishes
+      const isValidUuid = id.length >= 32 && id.includes('-');
+      if (isValidUuid) {
+        const updatePayload: Record<string, any> = {
           name: changes.name,
-          name_ta: changes.nameTa,
-          category_id: changes.categoryId,
-          image: changes.image,
-          default_unit: changes.defaultUnit,
-          is_active: changes.isActive,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'id' })
-        .then(() => {}, () => {});
+          tamil_name: changes.nameTa,
+          image_url: changes.image,
+          is_available: changes.isActive,
+        };
+        if (changes.categoryId) {
+          updatePayload.category_id = resolveCategoryUUID(changes.categoryId);
+        }
+
+        const { error } = await supabase
+          .from('dishes')
+          .update(updatePayload)
+          .eq('id', id);
+
+        if (error) console.warn('Supabase dish update warning:', error.message);
+      }
     }
   },
 
-  update(id: string, changes: Partial<Omit<AdminDish, 'id' | 'isAdminAdded'>>): AdminDish | undefined {
-    this.updateDish(id, changes);
+  async update(id: string, changes: Partial<Omit<AdminDish, 'id' | 'isAdminAdded'>>): Promise<AdminDish | undefined> {
+    await this.updateDish(id, changes);
     return this.getAll().find((d) => d.id === id);
   },
 
-  deactivateDish(id: string): void {
+  async deactivateDish(id: string): Promise<void> {
     const deactivated = this.getDeactivatedDishIds();
     if (!deactivated.includes(id)) {
       deactivated.push(id);
@@ -388,36 +417,36 @@ export const dishService = {
     }
     this.setOverride(id, { isActive: false });
 
-    if (isSupabaseConfigured) {
-      supabase.from('dishes').update({ is_active: false }).eq('id', id).then(() => {}, () => {});
+    if (isSupabaseConfigured && id.length >= 32 && id.includes('-')) {
+      await supabase.from('dishes').update({ is_available: false }).eq('id', id);
     }
   },
 
-  reactivateDish(id: string): void {
+  async reactivateDish(id: string): Promise<void> {
     const deactivated = this.getDeactivatedDishIds().filter((d) => d !== id);
     localStorage.setItem(DEACTIVATED_DISHES_KEY, JSON.stringify(deactivated));
     this.setOverride(id, { isActive: true });
 
-    if (isSupabaseConfigured) {
-      supabase.from('dishes').update({ is_active: true }).eq('id', id).then(() => {}, () => {});
+    if (isSupabaseConfigured && id.length >= 32 && id.includes('-')) {
+      await supabase.from('dishes').update({ is_available: true }).eq('id', id);
     }
   },
 
-  deleteDish(id: string): void {
+  async deleteDish(id: string): Promise<void> {
     const adminDishes = this.getAll();
     const isCustom = adminDishes.some((d) => d.id === id);
     if (isCustom) {
       const updated = adminDishes.filter((d) => d.id !== id);
       localStorage.setItem(DISHES_KEY, JSON.stringify(updated));
-      if (isSupabaseConfigured) {
-        supabase.from('dishes').delete().eq('id', id).then(() => {}, () => {});
+      if (isSupabaseConfigured && id.length >= 32 && id.includes('-')) {
+        await supabase.from('dishes').delete().eq('id', id);
       }
     }
-    this.deactivateDish(id);
+    await this.deactivateDish(id);
   },
 
-  delete(id: string): void {
-    this.deleteDish(id);
+  async delete(id: string): Promise<void> {
+    await this.deleteDish(id);
   },
 
   getUnitOverrides(): Record<string, DishUnitOverride> {
@@ -451,5 +480,5 @@ export const dishService = {
 if (typeof window !== 'undefined' && isSupabaseConfigured) {
   setTimeout(() => {
     dishService.syncFromSupabase().catch(() => {});
-  }, 1400);
+  }, 1000);
 }

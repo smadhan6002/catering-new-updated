@@ -33,6 +33,11 @@ export const AdminPayments: React.FC = () => {
 
   useEffect(() => {
     setOrders(orderService.getAll());
+    orderService.syncFromSupabase().then((synced) => {
+      if (synced && Array.isArray(synced)) {
+        setOrders(synced);
+      }
+    }).catch(() => {});
   }, []);
 
   const totalCollected = useMemo(() => {

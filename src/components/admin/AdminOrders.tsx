@@ -293,10 +293,10 @@ const OrderDetail: React.FC<OrderDetailProps> = ({ order: initialOrder, onClose,
     }
   }
 
-  function handleDownloadInvoice() {
+  async function handleDownloadInvoice() {
     setDownloadingInvoice(true);
     try {
-      const inv = invoiceService.create(order.id);
+      const inv = await invoiceService.create(order.id);
       generateInvoicePDF(order, inv);
       orderService.markInvoiceGenerated(order.id);
       onUpdated();

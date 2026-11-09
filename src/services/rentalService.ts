@@ -16,6 +16,17 @@ const RENTAL_CATEGORIES_KEY = 'annapoorna_rental_categories';
 const RENTAL_DOCS_KEY = 'annapoorna_rental_documents';
 const RENTAL_COUNTER_KEY = 'annapoorna_rental_counter';
 
+export function generateUUID(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 export const DEFAULT_RENTAL_CATEGORIES: RentalCategory[] = [
   { id: 'cat-cooking', name: 'Cooking Vessels', nameTa: 'சமையல் பாத்திரங்கள்', description: 'Large pots, andas, cauldrons for cooking' },
   { id: 'cat-serving', name: 'Serving Vessels', nameTa: 'பரிமாறும் பாத்திரங்கள்', description: 'Buckets, basins, spoons, serving dishes' },
@@ -204,72 +215,116 @@ export const rentalService = {
     if (!isSupabaseConfigured) return;
 
     try {
-      // 1. Categories
-      const { data: catData } = await supabase.from('rental_categories').select('*');
-      if (Array.isArray(catData) && catData.length > 0) {
-        const mappedCats: RentalCategory[] = catData.map((c) => ({
-          id: c.id,
-          name: c.name,
-          nameTa: c.name_ta,
-          description: c.description || undefined,
-        }));
-        localStorage.setItem(RENTAL_CATEGORIES_KEY, JSON.stringify(mappedCats));
+      // 1. Items
+      const { data: itemData, error: itemErr } = await supabase.from('rental_items').select('*');
+      if (!itemErr && Array.isArray(itemData) && itemData.length > 0) {
+        const local = this.getRawItems();
+        const localMap = new Map(local.map((r) => [r.id, r]));
+
+        itemData.forEach((r, idx) => {
+          let meta: Record<string, any> = {};
+          if (r.notes && r.notes.startsWith('{')) {
+            try {
+              meta = JSON.parse(r.notes);
+            } catch {
+              meta = {};
+            }
+          }
+
+          localMap.set(r.id, {
+            id: r.id,
+            code: meta.code || r.code || `RNT-${String(idx + 1).padStart(3, '0')}`,
+            nameEn: r.name || r.name_en || '',
+            nameTa: r.tamil_name || r.name_ta || '',
+            categoryId: meta.categoryId || r.category_id || 'cat-cooking',
+            totalQuantity: meta.totalQuantity != null ? Number(meta.totalQuantity) : (r.total_quantity || 10),
+            rentalPrice: Number(r.price || r.rental_price) || 0,
+            pricingUnit: r.unit || r.pricing_unit || 'Per Day',
+            securityDeposit: meta.securityDeposit != null ? Number(meta.securityDeposit) : (Number(r.security_deposit) || 0),
+            description: meta.description || r.description || undefined,
+            notes: meta.notes || (meta.code ? undefined : r.notes) || undefined,
+            isActive: meta.isActive ?? (r.is_active ?? true),
+            availableQuantity: meta.totalQuantity != null ? Number(meta.totalQuantity) : (r.total_quantity || 10),
+            createdAt: r.created_at || new Date().toISOString(),
+            updatedAt: r.updated_at || r.created_at || new Date().toISOString(),
+          });
+        });
+
+        localStorage.setItem(RENTAL_ITEMS_KEY, JSON.stringify(Array.from(localMap.values())));
       }
 
-      // 2. Items
-      const { data: itemData } = await supabase.from('rental_items').select('*');
-      if (Array.isArray(itemData) && itemData.length > 0) {
-        const mappedItems: RentalItem[] = itemData.map((r) => ({
-          id: r.id,
-          code: r.code,
-          nameEn: r.name_en,
-          nameTa: r.name_ta,
-          categoryId: r.category_id,
-          totalQuantity: r.total_quantity || 0,
-          rentalPrice: Number(r.rental_price) || 0,
-          pricingUnit: r.pricing_unit || 'Per Day',
-          securityDeposit: Number(r.security_deposit) || 0,
-          description: r.description || undefined,
-          notes: r.notes || undefined,
-          isActive: r.is_active ?? true,
-          availableQuantity: r.total_quantity || 0,
-          createdAt: r.created_at,
-          updatedAt: r.updated_at,
-        }));
-        localStorage.setItem(RENTAL_ITEMS_KEY, JSON.stringify(mappedItems));
-      }
+      // 2. Documents & Items
+      const { data: docData, error: docErr } = await supabase
+        .from('rental_documents')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-      // 3. Documents
-      const { data: docData } = await supabase.from('rental_documents').select('*');
-      if (Array.isArray(docData) && docData.length > 0) {
-        const mappedDocs: RentalDocument[] = docData.map((rd) => ({
-          id: rd.id,
-          rentalNumber: rd.rental_number,
-          customerName: rd.customer_name,
-          mobile: rd.mobile,
-          address: rd.address || undefined,
-          functionName: rd.function_name || undefined,
-          documentDate: rd.document_date,
-          functionDate: rd.function_date,
-          rentalStartDate: rd.rental_start_date,
-          expectedReturnDate: rd.expected_return_date,
-          actualReturnDate: rd.actual_return_date || undefined,
-          deliveryDetails: rd.delivery_details || undefined,
-          items: Array.isArray(rd.items) ? rd.items : [],
-          subtotal: Number(rd.subtotal) || 0,
-          additionalCharges: Number(rd.additional_charges) || 0,
-          discount: Number(rd.discount) || 0,
-          securityDeposit: Number(rd.security_deposit) || 0,
-          grandTotal: Number(rd.grand_total) || 0,
-          advancePaid: Number(rd.advance_paid) || 0,
-          balanceDue: Number(rd.balance_due) || 0,
-          status: rd.status || 'Confirmed',
-          notes: rd.notes || undefined,
-          terms: rd.terms || undefined,
-          preferredLanguage: rd.preferred_language || 'en',
-          createdAt: rd.created_at,
-          updatedAt: rd.updated_at,
-        }));
+      if (!docErr && Array.isArray(docData) && docData.length > 0) {
+        const docIds = docData.map((d) => d.id);
+        const { data: itemRows } = await supabase
+          .from('rental_document_items')
+          .select('*')
+          .in('document_id', docIds);
+
+        const itemsByDocId: Record<string, RentalDocItem[]> = {};
+        if (Array.isArray(itemRows)) {
+          itemRows.forEach((r) => {
+            if (!itemsByDocId[r.document_id]) itemsByDocId[r.document_id] = [];
+            itemsByDocId[r.document_id].push({
+              itemId: r.item_id,
+              itemCode: '',
+              nameEn: r.item_name || '',
+              nameTa: '',
+              quantity: Number(r.quantity) || 0,
+              returnedQuantity: 0,
+              pricePerUnit: Number(r.price) || 0,
+              pricingUnit: 'Per Day',
+              lineTotal: Number(r.subtotal) || (Number(r.quantity) * Number(r.price)),
+            });
+          });
+        }
+
+        const mappedDocs: RentalDocument[] = docData.map((rd) => {
+          let meta: Record<string, any> = {};
+          if (rd.notes && rd.notes.startsWith('{')) {
+            try {
+              meta = JSON.parse(rd.notes);
+            } catch {
+              meta = {};
+            }
+          }
+
+          const docItems = itemsByDocId[rd.id] || meta.items || (Array.isArray(rd.items) ? rd.items : []);
+          return {
+            id: rd.id,
+            rentalNumber: meta.rentalNumber || rd.rental_number || `RNT-${rd.id.substring(0, 8)}`,
+            customerName: rd.customer_name || meta.customerName || '',
+            mobile: rd.phone || rd.mobile || meta.mobile || '',
+            address: meta.address || rd.address || undefined,
+            functionName: meta.functionName || rd.function_name || undefined,
+            documentDate: rd.document_date || new Date().toISOString().split('T')[0],
+            functionDate: meta.functionDate || rd.function_date || rd.document_date,
+            rentalStartDate: meta.rentalStartDate || rd.rental_start_date || rd.document_date,
+            expectedReturnDate: meta.expectedReturnDate || rd.expected_return_date || rd.document_date,
+            actualReturnDate: meta.actualReturnDate || rd.actual_return_date || undefined,
+            deliveryDetails: meta.deliveryDetails || rd.delivery_details || undefined,
+            items: docItems,
+            subtotal: meta.subtotal != null ? Number(meta.subtotal) : (Number(rd.subtotal) || 0),
+            additionalCharges: meta.additionalCharges != null ? Number(meta.additionalCharges) : (Number(rd.additional_charges) || 0),
+            discount: meta.discount != null ? Number(meta.discount) : (Number(rd.discount) || 0),
+            securityDeposit: meta.securityDeposit != null ? Number(meta.securityDeposit) : (Number(rd.security_deposit) || 0),
+            grandTotal: meta.grandTotal != null ? Number(meta.grandTotal) : (Number(rd.grand_total) || 0),
+            advancePaid: meta.advancePaid != null ? Number(meta.advancePaid) : (Number(rd.advance_paid) || 0),
+            balanceDue: meta.balanceDue != null ? Number(meta.balanceDue) : (Number(rd.balance_due) || 0),
+            status: (meta.status || rd.status || 'Confirmed') as RentalStatus,
+            notes: meta.notes || (meta.rentalNumber ? undefined : rd.notes) || undefined,
+            terms: meta.terms || rd.terms || undefined,
+            preferredLanguage: meta.preferredLanguage || rd.preferred_language || 'en',
+            createdAt: rd.created_at || new Date().toISOString(),
+            updatedAt: rd.updated_at || rd.created_at || new Date().toISOString(),
+          };
+        });
+
         localStorage.setItem(RENTAL_DOCS_KEY, JSON.stringify(mappedDocs));
       }
     } catch (err) {
@@ -301,16 +356,6 @@ export const rentalService = {
     const newCat: RentalCategory = { id, ...data };
     cats.push(newCat);
     localStorage.setItem(RENTAL_CATEGORIES_KEY, JSON.stringify(cats));
-
-    if (isSupabaseConfigured) {
-      supabase.from('rental_categories').insert({
-        id,
-        name: data.name,
-        name_ta: data.nameTa,
-        description: data.description || null,
-      }).then(() => {}, () => {});
-    }
-
     return newCat;
   },
 
@@ -320,16 +365,6 @@ export const rentalService = {
     if (idx === -1) return undefined;
     cats[idx] = { ...cats[idx], ...data };
     localStorage.setItem(RENTAL_CATEGORIES_KEY, JSON.stringify(cats));
-
-    if (isSupabaseConfigured) {
-      supabase.from('rental_categories').upsert({
-        id,
-        name: cats[idx].name,
-        name_ta: cats[idx].nameTa,
-        description: cats[idx].description || null,
-      }, { onConflict: 'id' }).then(() => {}, () => {});
-    }
-
     return cats[idx];
   },
 
@@ -338,9 +373,9 @@ export const rentalService = {
     try {
       const stored = localStorage.getItem(RENTAL_ITEMS_KEY);
       if (!stored) {
-        const seeded: RentalItem[] = INITIAL_RENTAL_ITEMS.map((item, idx) => ({
-          id: `rnt-itm-${String(idx + 1).padStart(4, '0')}`,
+        const seeded: RentalItem[] = INITIAL_RENTAL_ITEMS.map((item) => ({
           ...item,
+          id: generateUUID(),
           availableQuantity: item.totalQuantity,
           createdAt: new Date().toISOString(),
         }));
@@ -390,9 +425,9 @@ export const rentalService = {
     return this.getAllItems().find((item) => item.code.trim().toLowerCase() === trimmed);
   },
 
-  addItem(
+  async addItem(
     data: Omit<RentalItem, 'id' | 'availableQuantity' | 'createdAt' | 'updatedAt'>
-  ): RentalItem {
+  ): Promise<RentalItem> {
     const items = this.getRawItems();
 
     const code = data.code.trim();
@@ -400,7 +435,7 @@ export const rentalService = {
       throw new Error(`Item code "${code}" already exists. Please choose a unique code.`);
     }
 
-    const nextId = `rnt-itm-${String(items.length + 1).padStart(4, '0')}`;
+    const nextId = generateUUID();
     const newItem: RentalItem = {
       ...data,
       id: nextId,
@@ -413,29 +448,38 @@ export const rentalService = {
     localStorage.setItem(RENTAL_ITEMS_KEY, JSON.stringify(items));
 
     if (isSupabaseConfigured) {
-      supabase.from('rental_items').insert({
-        id: nextId,
+      const meta = {
         code,
-        name_en: data.nameEn,
-        name_ta: data.nameTa,
-        category_id: data.categoryId,
-        total_quantity: data.totalQuantity,
-        rental_price: data.rentalPrice,
-        pricing_unit: data.pricingUnit,
-        security_deposit: data.securityDeposit,
+        categoryId: data.categoryId,
+        totalQuantity: data.totalQuantity,
+        securityDeposit: data.securityDeposit,
         description: data.description || null,
         notes: data.notes || null,
-        is_active: data.isActive ?? true,
-      }).then(() => {}, () => {});
+        isActive: data.isActive ?? true,
+      };
+
+      const { error } = await supabase.from('rental_items').insert({
+        id: nextId,
+        name: data.nameEn,
+        tamil_name: data.nameTa || data.nameEn,
+        price: data.rentalPrice,
+        unit: data.pricingUnit || 'Per Day',
+        notes: JSON.stringify(meta),
+      });
+
+      if (error) {
+        console.error('Failed to insert rental item in Supabase:', error);
+        throw new Error(error.message);
+      }
     }
 
     return newItem;
   },
 
-  updateItem(
+  async updateItem(
     id: string,
     changes: Partial<Omit<RentalItem, 'id' | 'createdAt'>>
-  ): RentalItem | undefined {
+  ): Promise<RentalItem | undefined> {
     const items = this.getRawItems();
     const idx = items.findIndex((i) => i.id === id);
     if (idx === -1) return undefined;
@@ -449,49 +493,54 @@ export const rentalService = {
       changes.code = code;
     }
 
-    items[idx] = {
+    const updated = {
       ...items[idx],
       ...changes,
       updatedAt: new Date().toISOString(),
     };
 
+    items[idx] = updated;
     localStorage.setItem(RENTAL_ITEMS_KEY, JSON.stringify(items));
 
-    if (isSupabaseConfigured) {
-      supabase.from('rental_items').upsert({
-        id,
-        code: items[idx].code,
-        name_en: items[idx].nameEn,
-        name_ta: items[idx].nameTa,
-        category_id: items[idx].categoryId,
-        total_quantity: items[idx].totalQuantity,
-        rental_price: items[idx].rentalPrice,
-        pricing_unit: items[idx].pricingUnit,
-        security_deposit: items[idx].securityDeposit,
-        description: items[idx].description || null,
-        notes: items[idx].notes || null,
-        is_active: items[idx].isActive ?? true,
-        updated_at: items[idx].updatedAt,
-      }, { onConflict: 'id' }).then(() => {}, () => {});
+    if (isSupabaseConfigured && id.length >= 32 && id.includes('-')) {
+      const meta = {
+        code: updated.code,
+        categoryId: updated.categoryId,
+        totalQuantity: updated.totalQuantity,
+        securityDeposit: updated.securityDeposit,
+        description: updated.description || null,
+        notes: updated.notes || null,
+        isActive: updated.isActive,
+      };
+
+      const { error } = await supabase.from('rental_items').update({
+        name: updated.nameEn,
+        tamil_name: updated.nameTa,
+        price: updated.rentalPrice,
+        unit: updated.pricingUnit,
+        notes: JSON.stringify(meta),
+      }).eq('id', id);
+
+      if (error) console.warn('Supabase rental item update warning:', error.message);
     }
 
     return items[idx];
   },
 
-  deleteItem(id: string): { softDeleted: boolean } {
+  async deleteItem(id: string): Promise<{ softDeleted: boolean }> {
     const documents = this.getAllDocuments();
     const isReferenced = documents.some((doc) => doc.items.some((i) => i.itemId === id));
 
     if (isReferenced) {
-      this.updateItem(id, { isActive: false });
+      await this.updateItem(id, { isActive: false });
       return { softDeleted: true };
     }
 
     const items = this.getRawItems().filter((i) => i.id !== id);
     localStorage.setItem(RENTAL_ITEMS_KEY, JSON.stringify(items));
 
-    if (isSupabaseConfigured) {
-      supabase.from('rental_items').delete().eq('id', id).then(() => {}, () => {});
+    if (isSupabaseConfigured && id.length >= 32 && id.includes('-')) {
+      await supabase.from('rental_items').delete().eq('id', id);
     }
 
     return { softDeleted: false };
@@ -536,12 +585,13 @@ export const rentalService = {
     };
   },
 
-  addDocument(
+  async addDocument(
     data: Omit<RentalDocument, 'id' | 'rentalNumber' | 'createdAt' | 'updatedAt' | 'subtotal' | 'grandTotal' | 'balanceDue'>
-  ): RentalDocument {
+  ): Promise<RentalDocument> {
     const documents = this.getAllDocuments();
     const rentalNumber = generateRentalNumber();
     const totals = this.computeTotals(data);
+    const docId = generateUUID();
 
     const preparedItems = data.items.map((i) => ({
       ...i,
@@ -551,7 +601,7 @@ export const rentalService = {
 
     const newDoc: RentalDocument = {
       ...data,
-      id: `rent-doc-${Date.now()}`,
+      id: docId,
       rentalNumber,
       items: preparedItems,
       ...totals,
@@ -562,110 +612,149 @@ export const rentalService = {
     localStorage.setItem(RENTAL_DOCS_KEY, JSON.stringify(documents));
 
     if (isSupabaseConfigured) {
-      supabase.from('rental_documents').insert({
-        id: newDoc.id,
-        rental_number: newDoc.rentalNumber,
-        customer_name: newDoc.customerName,
-        mobile: newDoc.mobile,
+      const meta = {
+        rentalNumber,
+        functionName: newDoc.functionName || null,
+        functionDate: newDoc.functionDate,
+        rentalStartDate: newDoc.rentalStartDate,
+        expectedReturnDate: newDoc.expectedReturnDate,
+        actualReturnDate: newDoc.actualReturnDate || null,
         address: newDoc.address || null,
-        function_name: newDoc.functionName || null,
-        document_date: newDoc.documentDate,
-        function_date: newDoc.functionDate,
-        rental_start_date: newDoc.rentalStartDate,
-        expected_return_date: newDoc.expectedReturnDate,
-        actual_return_date: newDoc.actualReturnDate || null,
-        delivery_details: newDoc.deliveryDetails || null,
-        items: newDoc.items,
+        deliveryDetails: newDoc.deliveryDetails || null,
         subtotal: newDoc.subtotal,
-        additional_charges: newDoc.additionalCharges,
+        additionalCharges: newDoc.additionalCharges,
         discount: newDoc.discount,
-        security_deposit: newDoc.securityDeposit,
-        grand_total: newDoc.grandTotal,
-        advance_paid: newDoc.advancePaid,
-        balance_due: newDoc.balanceDue,
+        securityDeposit: newDoc.securityDeposit,
+        grandTotal: newDoc.grandTotal,
+        advancePaid: newDoc.advancePaid,
+        balanceDue: newDoc.balanceDue,
         status: newDoc.status,
-        notes: newDoc.notes || null,
         terms: newDoc.terms || null,
-        preferred_language: newDoc.preferredLanguage || 'en',
-      }).then(() => {}, () => {});
+        preferredLanguage: newDoc.preferredLanguage || 'en',
+      };
+
+      const { error: docErr } = await supabase.from('rental_documents').insert({
+        id: docId,
+        customer_name: newDoc.customerName,
+        phone: newDoc.mobile,
+        document_date: newDoc.documentDate,
+        notes: JSON.stringify(meta),
+      });
+
+      if (docErr) {
+        console.error('Failed to insert rental document in Supabase:', docErr);
+        throw new Error(docErr.message);
+      }
+
+      if (preparedItems.length > 0) {
+        const itemRows = preparedItems.map((itm) => ({
+          id: generateUUID(),
+          document_id: docId,
+          item_id: itm.itemId && itm.itemId.length >= 32 && itm.itemId.includes('-')
+            ? itm.itemId
+            : null,
+          item_name: itm.nameEn,
+          quantity: itm.quantity,
+          price: itm.pricePerUnit,
+          subtotal: itm.lineTotal,
+        }));
+
+        const { error: rdiErr } = await supabase.from('rental_document_items').insert(itemRows);
+        if (rdiErr) {
+          console.error('Failed to insert rental document items in Supabase:', rdiErr);
+          throw new Error(rdiErr.message);
+        }
+      }
     }
 
     return newDoc;
   },
 
-  updateDocument(
+  async updateDocument(
     id: string,
     changes: Partial<Omit<RentalDocument, 'id' | 'rentalNumber' | 'createdAt'>>
-  ): RentalDocument | undefined {
+  ): Promise<RentalDocument | undefined> {
     const documents = this.getAllDocuments();
     const idx = documents.findIndex((d) => d.id === id);
     if (idx === -1) return undefined;
 
-    const existing = documents[idx];
-    const items = changes.items || existing.items;
-
-    const preparedItems = items.map((i) => ({
-      ...i,
-      lineTotal: i.quantity * i.pricePerUnit,
-    }));
-
+    const current = documents[idx];
+    const items = changes.items || current.items;
     const totals = this.computeTotals({
-      items: preparedItems,
-      additionalCharges: changes.additionalCharges ?? existing.additionalCharges,
-      discount: changes.discount ?? existing.discount,
-      securityDeposit: changes.securityDeposit ?? existing.securityDeposit,
-      advancePaid: changes.advancePaid ?? existing.advancePaid,
+      items,
+      additionalCharges: changes.additionalCharges ?? current.additionalCharges,
+      discount: changes.discount ?? current.discount,
+      securityDeposit: changes.securityDeposit ?? current.securityDeposit,
+      advancePaid: changes.advancePaid ?? current.advancePaid,
     });
 
-    documents[idx] = {
-      ...existing,
+    const updated: RentalDocument = {
+      ...current,
       ...changes,
-      items: preparedItems,
       ...totals,
+      items: items.map((i) => ({
+        ...i,
+        lineTotal: i.quantity * i.pricePerUnit,
+      })),
       updatedAt: new Date().toISOString(),
     };
 
+    documents[idx] = updated;
     localStorage.setItem(RENTAL_DOCS_KEY, JSON.stringify(documents));
 
-    if (isSupabaseConfigured) {
-      supabase.from('rental_documents').upsert({
-        id,
-        rental_number: documents[idx].rentalNumber,
-        customer_name: documents[idx].customerName,
-        mobile: documents[idx].mobile,
-        address: documents[idx].address || null,
-        function_name: documents[idx].functionName || null,
-        document_date: documents[idx].documentDate,
-        function_date: documents[idx].functionDate,
-        rental_start_date: documents[idx].rentalStartDate,
-        expected_return_date: documents[idx].expectedReturnDate,
-        actual_return_date: documents[idx].actualReturnDate || null,
-        delivery_details: documents[idx].deliveryDetails || null,
-        items: documents[idx].items,
-        subtotal: documents[idx].subtotal,
-        additional_charges: documents[idx].additionalCharges,
-        discount: documents[idx].discount,
-        security_deposit: documents[idx].securityDeposit,
-        grand_total: documents[idx].grandTotal,
-        advance_paid: documents[idx].advancePaid,
-        balance_due: documents[idx].balanceDue,
-        status: documents[idx].status,
-        notes: documents[idx].notes || null,
-        terms: documents[idx].terms || null,
-        preferred_language: documents[idx].preferredLanguage || 'en',
-        updated_at: documents[idx].updatedAt,
-      }, { onConflict: 'id' }).then(() => {}, () => {});
+    if (isSupabaseConfigured && id.length >= 32 && id.includes('-')) {
+      const meta = {
+        rentalNumber: updated.rentalNumber,
+        functionName: updated.functionName || null,
+        functionDate: updated.functionDate,
+        rentalStartDate: updated.rentalStartDate,
+        expectedReturnDate: updated.expectedReturnDate,
+        actualReturnDate: updated.actualReturnDate || null,
+        address: updated.address || null,
+        deliveryDetails: updated.deliveryDetails || null,
+        subtotal: updated.subtotal,
+        additionalCharges: updated.additionalCharges,
+        discount: updated.discount,
+        securityDeposit: updated.securityDeposit,
+        grandTotal: updated.grandTotal,
+        advancePaid: updated.advancePaid,
+        balanceDue: updated.balanceDue,
+        status: updated.status,
+      };
+
+      await supabase.from('rental_documents').update({
+        customer_name: updated.customerName,
+        phone: updated.mobile,
+        document_date: updated.documentDate,
+        notes: JSON.stringify(meta),
+      }).eq('id', id);
+
+      if (changes.items) {
+        await supabase.from('rental_document_items').delete().eq('document_id', id);
+        const itemRows = updated.items.map((itm) => ({
+          id: generateUUID(),
+          document_id: id,
+          item_id: itm.itemId && itm.itemId.length >= 32 && itm.itemId.includes('-')
+            ? itm.itemId
+            : null,
+          item_name: itm.nameEn,
+          quantity: itm.quantity,
+          price: itm.pricePerUnit,
+          subtotal: itm.lineTotal,
+        }));
+        await supabase.from('rental_document_items').insert(itemRows);
+      }
     }
 
-    return documents[idx];
+    return updated;
   },
 
-  updateStatus(
+  async updateStatus(
     id: string,
     status: RentalStatus,
     actualReturnDate?: string,
     notes?: string
-  ): RentalDocument | undefined {
+  ): Promise<RentalDocument | undefined> {
     const doc = this.getDocumentById(id);
     if (!doc) return undefined;
 
@@ -685,16 +774,25 @@ export const rentalService = {
       }
     }
 
-    return this.updateDocument(id, updates);
+    return await this.updateDocument(id, updates);
   },
 
-  deleteDocument(id: string): void {
-    const documents = this.getAllDocuments().filter((d) => d.id !== id);
-    localStorage.setItem(RENTAL_DOCS_KEY, JSON.stringify(documents));
-
-    if (isSupabaseConfigured) {
-      supabase.from('rental_documents').delete().eq('id', id).then(() => {}, () => {});
+  async deleteDocument(id: string): Promise<boolean> {
+    const documents = this.getAllDocuments();
+    const filtered = documents.filter((d) => d.id !== id);
+    if (filtered.length !== documents.length) {
+      localStorage.setItem(RENTAL_DOCS_KEY, JSON.stringify(filtered));
+      if (isSupabaseConfigured && id.length >= 32 && id.includes('-')) {
+        await supabase.from('rental_document_items').delete().eq('document_id', id);
+        await supabase.from('rental_documents').delete().eq('id', id);
+      }
+      return true;
     }
+    return false;
+  },
+
+  generateRentalNumber(): string {
+    return generateRentalNumber();
   },
 };
 
@@ -702,5 +800,5 @@ export const rentalService = {
 if (typeof window !== 'undefined' && isSupabaseConfigured) {
   setTimeout(() => {
     rentalService.syncFromSupabase().catch(() => {});
-  }, 2000);
+  }, 1600);
 }

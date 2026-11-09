@@ -246,7 +246,7 @@ export const RentalDocumentModal: React.FC<RentalDocumentModalProps> = ({
     try {
       let savedDoc: RentalDocument;
       if (documentId) {
-        const res = rentalService.updateDocument(documentId, {
+        const res = await rentalService.updateDocument(documentId, {
           customerName: customerName.trim(),
           mobile: mobile.trim(),
           address: address.trim(),
@@ -268,7 +268,7 @@ export const RentalDocumentModal: React.FC<RentalDocumentModalProps> = ({
         if (!res) throw new Error('Failed to update rental document');
         savedDoc = res;
       } else {
-        savedDoc = rentalService.addDocument({
+        savedDoc = await rentalService.addDocument({
           customerName: customerName.trim(),
           mobile: mobile.trim(),
           address: address.trim(),
