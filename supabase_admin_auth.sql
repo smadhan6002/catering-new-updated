@@ -43,3 +43,4 @@ SELECT
   au.created_at AS authorized_at
 FROM public.admin_users au
 JOIN auth.users u ON au.id = u.id;
+
