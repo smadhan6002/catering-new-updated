@@ -1,10 +1,36 @@
 -- ==============================================================================
 -- KANCHI AMBAL CATERING — PRODUCTION SUPABASE DATABASE SCHEMA & MIGRATION
 -- ==============================================================================
--- This script sets up the complete relational database, indexes, RLS policies,
--- and Storage buckets required for the Catering Website & Admin Panel.
 -- Run this in your Supabase Dashboard: SQL Editor -> New Query -> Run.
 -- ==============================================================================
+
+-- ==============================================================================
+-- 0. SCHEMA UPGRADE & REPAIR FOR EXISTING TABLES
+-- ==============================================================================
+ALTER TABLE public.orders 
+  ADD COLUMN IF NOT EXISTS order_number VARCHAR(64),
+  ADD COLUMN IF NOT EXISTS order_source VARCHAR(50) DEFAULT 'Website',
+  ADD COLUMN IF NOT EXISTS event_address TEXT,
+  ADD COLUMN IF NOT EXISTS event_type VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS delivery_time VARCHAR(50),
+  ADD COLUMN IF NOT EXISTS food_quantities JSONB DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS payments JSONB DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS kitchen_sheet_status VARCHAR(50) DEFAULT 'Not Prepared',
+  ADD COLUMN IF NOT EXISTS admin_notes TEXT,
+  ADD COLUMN IF NOT EXISTS invoice_generated BOOLEAN DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS mobile VARCHAR(50),
+  ADD COLUMN IF NOT EXISTS order_date DATE,
+  ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'Pending',
+  ADD COLUMN IF NOT EXISTS balance_paid NUMERIC(12, 2) DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
+-- Drop strict dish UUID foreign key constraint on order_items so text dish IDs ('bb1', 'st7', etc.) work
+ALTER TABLE public.order_items DROP CONSTRAINT IF EXISTS order_items_dish_id_fkey;
+ALTER TABLE public.order_items ALTER COLUMN dish_id TYPE VARCHAR(100);
+ALTER TABLE public.order_items 
+  ADD COLUMN IF NOT EXISTS category_id VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS notes TEXT,
+  ADD COLUMN IF NOT EXISTS price NUMERIC(10, 2) DEFAULT 0;
 
 -- 0. EXTENSIONS
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";

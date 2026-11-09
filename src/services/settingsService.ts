@@ -65,3 +65,4 @@ if (typeof window !== 'undefined' && isSupabaseConfigured) {
     settingsService.syncFromSupabase().catch(() => {});
   }, 3000);
 }
+

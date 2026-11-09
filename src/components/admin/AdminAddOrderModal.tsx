@@ -320,7 +320,7 @@ export const AdminAddOrderModal: React.FC<AdminAddOrderModalProps> = ({
       }
 
       // 5. Create Order
-      const newOrder = orderService.create({
+      const newOrder = await orderService.create({
         customerId,
         customerName: customerName.trim(),
         mobile: cleanMobile,

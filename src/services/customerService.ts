@@ -184,15 +184,15 @@ export const customerService = {
 
     // Save asynchronously to Supabase
     if (isSupabaseConfigured) {
-      supabase
-        .from('customers')
-        .upsert(mapCustomerToRow(newCustomer), { onConflict: 'id' })
-        .then(
-          ({ error }) => {
-            if (error) console.warn('Supabase customer create error:', error.message);
-          },
-          (err: unknown) => console.warn('Supabase customer create network error:', err)
-        );
+      Promise.resolve(
+        supabase
+          .from('customers')
+          .upsert(mapCustomerToRow(newCustomer), { onConflict: 'id' })
+      )
+        .then(({ error }) => {
+          if (error) console.warn('Supabase customer create error:', error.message);
+        })
+        .catch((err: any) => console.warn('Supabase customer create network error:', err));
     }
 
     return newCustomer;
@@ -216,15 +216,15 @@ export const customerService = {
 
     // Update asynchronously in Supabase
     if (isSupabaseConfigured) {
-      supabase
-        .from('customers')
-        .upsert(mapCustomerToRow(updated), { onConflict: 'id' })
-        .then(
-          ({ error }) => {
-            if (error) console.warn('Supabase customer update error:', error.message);
-          },
-          (err: unknown) => console.warn('Supabase customer update network error:', err)
-        );
+      Promise.resolve(
+        supabase
+          .from('customers')
+          .upsert(mapCustomerToRow(updated), { onConflict: 'id' })
+      )
+        .then(({ error }) => {
+          if (error) console.warn('Supabase customer update error:', error.message);
+        })
+        .catch((err: any) => console.warn('Supabase customer update network error:', err));
     }
 
     return updated;
@@ -235,16 +235,16 @@ export const customerService = {
     localStorage.setItem(CUSTOMERS_KEY, JSON.stringify(customers));
 
     if (isSupabaseConfigured) {
-      supabase
-        .from('customers')
-        .delete()
-        .eq('id', id)
-        .then(
-          ({ error }) => {
-            if (error) console.warn('Supabase customer delete error:', error.message);
-          },
-          (err: unknown) => console.warn('Supabase customer delete network error:', err)
-        );
+      Promise.resolve(
+        supabase
+          .from('customers')
+          .delete()
+          .eq('id', id)
+      )
+        .then(({ error }) => {
+          if (error) console.warn('Supabase customer delete error:', error.message);
+        })
+        .catch((err: any) => console.warn('Supabase customer delete network error:', err));
     }
   },
 

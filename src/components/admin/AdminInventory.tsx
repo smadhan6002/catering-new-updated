@@ -291,10 +291,10 @@ export const AdminInventory: React.FC = () => {
   function handleSaveNewCategory(e: React.FormEvent) {
     e.preventDefault();
     if (!newCatNameEn.trim()) return;
-    const created = inventoryService.addCategory({
-      nameEn: newCatNameEn.trim(),
-      nameTa: newCatNameTa.trim(),
-    });
+    const created = inventoryService.addCategory(
+      newCatNameEn.trim(),
+      newCatNameTa.trim(),
+    );
     setCategories(inventoryService.getCategories());
     setFormCategory(created.id);
     setNewCatNameEn('');

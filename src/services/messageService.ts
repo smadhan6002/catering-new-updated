@@ -148,3 +148,4 @@ if (typeof window !== 'undefined' && isSupabaseConfigured) {
     messageService.syncFromSupabase().catch(() => {});
   }, 2600);
 }
+

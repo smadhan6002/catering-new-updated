@@ -18,6 +18,7 @@ import {
   Store,
   FileText,
   ChefHat,
+  Loader2,
 } from 'lucide-react';
 import {
   orderService,
@@ -158,7 +159,7 @@ const OrderDetail: React.FC<OrderDetailProps> = ({ order: initialOrder, onClose,
     setIsPaymentModalOpen(true);
   }
 
-  function handleSavePayment(e?: React.FormEvent) {
+  async function handleSavePayment(e?: React.FormEvent) {
     if (e) e.preventDefault();
     setModalError('');
 
@@ -205,7 +206,7 @@ const OrderDetail: React.FC<OrderDetailProps> = ({ order: initialOrder, onClose,
     setIsPaymentModalOpen(false);
 
     // Persist immediately
-    const updated = orderService.update(order.id, {
+    const updated = await orderService.update(order.id, {
       totalAmount: total,
       payments: updatedPayments,
       status,
@@ -217,14 +218,14 @@ const OrderDetail: React.FC<OrderDetailProps> = ({ order: initialOrder, onClose,
     showToast(editingPaymentId ? 'Payment updated.' : 'Payment added.');
   }
 
-  function handleDeletePayment() {
+  async function handleDeletePayment() {
     if (!deletingPaymentId) return;
     const updatedPayments = payments.filter((p) => p.id !== deletingPaymentId);
     setPayments(updatedPayments);
     setDeletingPaymentId(null);
 
     // Save immediately
-    const updated = orderService.update(order.id, {
+    const updated = await orderService.update(order.id, {
       totalAmount: total,
       payments: updatedPayments,
       status,
@@ -245,7 +246,7 @@ const OrderDetail: React.FC<OrderDetailProps> = ({ order: initialOrder, onClose,
 
     setSaving(true);
     try {
-      const updated = orderService.update(order.id, {
+      const updated = await orderService.update(order.id, {
         totalAmount: total,
         payments,
         status,
@@ -296,7 +297,7 @@ const OrderDetail: React.FC<OrderDetailProps> = ({ order: initialOrder, onClose,
             <div className="flex items-center gap-3">
               <div>
                 <div className="flex items-center gap-2">
-                  <h3 className="font-bold text-slate-900 text-lg">{order.id}</h3>
+                  <h3 className="font-bold text-slate-900 text-lg">{order.orderNumber || order.id}</h3>
                   <span
                     className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${srcBadge.bg} ${srcBadge.text} ${srcBadge.border}`}
                   >
@@ -823,17 +824,32 @@ export const AdminOrders: React.FC<AdminOrdersProps> = ({ onOpenKitchenSheet: _o
   const [expandedMobile, setExpandedMobile] = useState<string | null>(null);
   const [isAddOrderModalOpen, setIsAddOrderModalOpen] = useState(false);
 
-  function loadOrders() {
-    setOrders(orderService.getAll().sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    ));
-    orderService.syncFromSupabase().then((synced) => {
+  const [isLoading, setIsLoading] = useState(false);
+
+  async function loadOrders() {
+    setIsLoading(true);
+    try {
+      // 1. Auto-migrate any unmigrated local orders to Supabase
+      await orderService.migrateExistingOrdersToSupabase();
+      // 2. Fetch directly from Supabase
+      const synced = await orderService.syncFromSupabase();
       if (synced && Array.isArray(synced)) {
         setOrders(synced.sort(
           (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
         ));
+      } else {
+        setOrders(orderService.getAll().sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        ));
       }
-    }).catch(() => {});
+    } catch (err) {
+      console.warn('loadOrders error:', err);
+      setOrders(orderService.getAll().sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      ));
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   useEffect(() => { loadOrders(); }, []);
@@ -843,6 +859,7 @@ export const AdminOrders: React.FC<AdminOrdersProps> = ({ onOpenKitchenSheet: _o
     const matchSearch =
       !q ||
       o.id.toLowerCase().includes(q) ||
+      (o.orderNumber && o.orderNumber.toLowerCase().includes(q)) ||
       o.customerName.toLowerCase().includes(q) ||
       o.mobile.includes(q);
 
@@ -853,9 +870,9 @@ export const AdminOrders: React.FC<AdminOrdersProps> = ({ onOpenKitchenSheet: _o
     return matchSearch && matchStatus && matchSource && matchDate;
   });
 
-  function handleDelete(id: string) {
-    orderService.delete(id);
-    loadOrders();
+  async function handleDelete(id: string) {
+    await orderService.delete(id);
+    await loadOrders();
     setDeleteConfirm(null);
   }
 
@@ -938,7 +955,14 @@ export const AdminOrders: React.FC<AdminOrdersProps> = ({ onOpenKitchenSheet: _o
         </div>
       </div>
 
-      {filtered.length === 0 ? (
+      {isLoading ? (
+        <div className="bg-white rounded-2xl border border-slate-100 py-16 text-center text-slate-500">
+          <Loader2 size={36} className="mx-auto mb-3 text-primary animate-spin" />
+          <p className="text-sm font-semibold text-slate-700">
+            {isTa ? 'ஆர்டர்கள் ஏற்றப்படுகின்றன...' : 'Loading orders from Supabase...'}
+          </p>
+        </div>
+      ) : filtered.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-100 py-16 text-center text-slate-400">
           <FileText size={44} className="mx-auto mb-3 text-slate-200" />
           <p className="text-base font-semibold text-slate-600">
@@ -978,7 +1002,7 @@ export const AdminOrders: React.FC<AdminOrdersProps> = ({ onOpenKitchenSheet: _o
 
                     return (
                       <tr key={order.id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="px-5 py-3.5 font-mono text-primary font-bold text-xs">{order.id}</td>
+                        <td className="px-5 py-3.5 font-mono text-primary font-bold text-xs">{order.orderNumber || order.id}</td>
                         <td className="px-5 py-3.5">
                           <p className="font-bold text-slate-900">{order.customerName}</p>
                           <p className="text-xs text-slate-500">{order.mobile}</p>
@@ -1094,7 +1118,7 @@ export const AdminOrders: React.FC<AdminOrdersProps> = ({ onOpenKitchenSheet: _o
                   >
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs font-bold text-primary">{order.id}</span>
+                        <span className="font-mono text-xs font-bold text-primary">{order.orderNumber || order.id}</span>
                         <span
                           className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border ${srcStyle.bg} ${srcStyle.text} ${srcStyle.border}`}
                         >

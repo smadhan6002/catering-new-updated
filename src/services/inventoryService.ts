@@ -194,8 +194,9 @@ export const inventoryService = {
           nameTa: it.name_ta,
           categoryId: it.category_id,
           unit: it.unit,
-          currentStock: it.stock_quantity ?? undefined,
+          stockQuantity: it.stock_quantity ?? undefined,
           unitPrice: it.unit_price ?? undefined,
+          isActive: it.is_active ?? true,
           createdAt: it.created_at,
           updatedAt: it.updated_at,
         }));
@@ -207,15 +208,15 @@ export const inventoryService = {
       if (!docErr && Array.isArray(docData) && docData.length > 0) {
         const mappedDocs: InventoryDocument[] = docData.map((d) => ({
           id: d.id,
-          docNumber: d.doc_number || d.docNumber || `DOC-${d.id.slice(-6)}`,
+          docNumber: d.doc_number || d.id,
           title: d.title,
           eventName: d.event_name,
           customerName: d.customer_name || undefined,
-          eventDate: d.event_date || d.document_date || new Date().toISOString(),
+          eventDate: d.event_date || undefined,
           documentDate: d.document_date,
           preparedBy: d.prepared_by || undefined,
           notes: d.notes || undefined,
-          language: (d.language === 'ta' ? 'ta' : 'en') as 'en' | 'ta',
+          language: d.language || 'both',
           totalAmount: d.total_amount ? Number(d.total_amount) : undefined,
           items: Array.isArray(d.items) ? d.items : [],
           createdAt: d.created_at,
@@ -241,11 +242,9 @@ export const inventoryService = {
     }
   },
 
-  addCategory(categoryOrEn: { nameEn: string; nameTa: string } | string, maybeTa?: string): InventoryCategory {
+  addCategory(nameEn: string, nameTa: string): InventoryCategory {
     const categories = this.getCategories();
     const id = `cat-${Date.now()}`;
-    const nameEn = typeof categoryOrEn === 'object' ? categoryOrEn.nameEn : categoryOrEn;
-    const nameTa = typeof categoryOrEn === 'object' ? categoryOrEn.nameTa : (maybeTa || '');
     const newCat: InventoryCategory = { id, nameEn, nameTa };
     categories.push(newCat);
     localStorage.setItem(INVENTORY_CATEGORIES_KEY, JSON.stringify(categories));
@@ -303,9 +302,9 @@ export const inventoryService = {
         name_ta: newItem.nameTa,
         category_id: newItem.categoryId,
         unit: newItem.unit,
-        stock_quantity: newItem.currentStock || null,
+        stock_quantity: newItem.stockQuantity || null,
         unit_price: newItem.unitPrice || null,
-        is_active: true,
+        is_active: newItem.isActive ?? true,
       }).then(() => {}, () => {});
     }
 
@@ -329,9 +328,9 @@ export const inventoryService = {
           name_ta: item.nameTa,
           category_id: item.categoryId,
           unit: item.unit,
-          stock_quantity: item.currentStock || null,
+          stock_quantity: item.stockQuantity || null,
           unit_price: item.unitPrice || null,
-          is_active: true,
+          is_active: item.isActive ?? true,
           updated_at: items[index].updatedAt,
         }, { onConflict: 'id' }).then(() => {}, () => {});
       }

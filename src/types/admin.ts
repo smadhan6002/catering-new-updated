@@ -55,6 +55,7 @@ export interface OrderItem {
   quantity?: number;
   unit?: string;
   notes?: string;
+  price?: number;
 }
 
 export interface OrderFoodQuantity {
@@ -105,7 +106,8 @@ export interface KitchenOrderSheet {
 }
 
 export interface Order {
-  id: string;           // e.g. ORD-0001
+  id: string;           // e.g. ORD-0001 or UUID
+  orderNumber?: string; // Displayed order number e.g. ORD-0001
   customerId?: string;  // Associated customer ID
   customerName: string;
   mobile: string;

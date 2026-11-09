@@ -27,6 +27,8 @@ export const InquiryFormModal: React.FC<InquiryFormModalProps> = ({ isOpen, onCl
 
   const [orderId, setOrderId] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   if (!isOpen) return null;
@@ -52,52 +54,67 @@ export const InquiryFormModal: React.FC<InquiryFormModalProps> = ({ isOpen, onCl
     return Object.keys(errs).length === 0;
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
+    setIsSubmitting(true);
+    setSubmitError(null);
 
-    // Save order to localStorage via orderService
-    const orderItems: OrderItem[] = cartItems.map((item) => ({
-      dishId: item.id,
-      dishName: item.name,   // snapshot — safe even if dish is later renamed/deleted
-      categoryId: item.categoryId,
-    }));
+    try {
+      // Map cart items into snapshot order items
+      const orderItems: OrderItem[] = cartItems.map((item) => ({
+        dishId: item.id,
+        dishName: item.name,   // snapshot — safe even if dish is later renamed/deleted
+        categoryId: item.categoryId,
+      }));
 
-    // Find or create customer record
-    const customer = customerService.findOrCreateFromOrder({
-      customerName: formData.name.trim(),
-      mobile: formData.phone.replace(/\s/g, ''),
-      notes: formData.notes.trim() || undefined,
-      preferredLanguage: t.lang === 'ta' ? 'ta' : 'en',
-    });
+      // Find or create customer record
+      const customer = customerService.findOrCreateFromOrder({
+        customerName: formData.name.trim(),
+        mobile: formData.phone.replace(/\s/g, ''),
+        notes: formData.notes.trim() || undefined,
+        preferredLanguage: t.lang === 'ta' ? 'ta' : 'en',
+      });
 
-    const order = orderService.create({
-      customerId: customer.id,
-      customerName: formData.name.trim(),
-      mobile: formData.phone.replace(/\s/g, ''),
-      orderSource: 'Website',
-      eventAddress: formData.eventAddress.trim(),
-      eventType: formData.eventType.trim(),
-      orderDate: formData.eventDate,
-      items: orderItems,
-      guestCount,
-      foodQuantities, // Include food quantities in the order
-      totalAmount: 0,
-      advanceAmount: 0,
-      balancePaid: 0,
-      payments: [],
-      status: 'Pending',
-      notes: formData.notes.trim(),
-    });
+      // Save order permanently to Supabase
+      const order = await orderService.create({
+        customerId: customer.id,
+        customerName: formData.name.trim(),
+        mobile: formData.phone.replace(/\s/g, ''),
+        orderSource: 'Website',
+        eventAddress: formData.eventAddress.trim(),
+        eventType: formData.eventType.trim(),
+        orderDate: formData.eventDate,
+        items: orderItems,
+        guestCount,
+        foodQuantities, // Include food quantities in the order
+        totalAmount: 0,
+        advanceAmount: 0,
+        balancePaid: 0,
+        payments: [],
+        status: 'Pending',
+        notes: formData.notes.trim(),
+      });
 
-    setOrderId(order.id);
-    setSubmitted(true);
+      const displayNum = order.orderNumber || order.id;
+      setOrderId(displayNum);
+      setSubmitted(true);
 
-    // Also send via WhatsApp
-    const url = generateWhatsAppLink(order, t);
-    window.open(url, '_blank');
+      // Send via WhatsApp
+      const url = generateWhatsAppLink(order, t);
+      window.open(url, '_blank');
 
-    clearCart();
+      clearCart();
+    } catch (err: any) {
+      console.error('Order submission error:', err);
+      setSubmitError(
+        t.lang === 'ta'
+          ? `ஆர்டரைச் சேமிப்பதில் பிழை ஏற்பட்டது: ${err.message || 'மீண்டும் முயற்சிக்கவும்.'}`
+          : `Failed to save order to database: ${err.message || 'Please check your connection and try again.'}`
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (submitted && orderId) {
@@ -222,12 +239,24 @@ export const InquiryFormModal: React.FC<InquiryFormModalProps> = ({ isOpen, onCl
             />
           </div>
 
+          {submitError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-xs sm:text-sm">
+              <p className="font-semibold">{t.lang === 'ta' ? 'ஆர்டர் சேமிப்பில் பிழை:' : 'Order submission error:'}</p>
+              <p className="mt-0.5">{submitError}</p>
+            </div>
+          )}
+
           <div className="pt-2">
             <button
               type="submit"
-              className="w-full bg-primary hover:bg-[#c2410c] text-white py-3.5 rounded-xl font-bold transition-all shadow-md hover:shadow-lg cursor-pointer mt-2"
+              disabled={isSubmitting}
+              className="w-full bg-primary hover:bg-[#c2410c] disabled:bg-orange-300 text-white py-3.5 rounded-xl font-bold transition-all shadow-md hover:shadow-lg cursor-pointer mt-2 flex items-center justify-center gap-2"
             >
-              {t.sendWhatsApp}
+              {isSubmitting ? (
+                <span>{t.lang === 'ta' ? 'பதிவாகிறது...' : 'Saving to Database & Opening WhatsApp...'}</span>
+              ) : (
+                <span>{t.sendWhatsApp}</span>
+              )}
             </button>
           </div>
         </form>

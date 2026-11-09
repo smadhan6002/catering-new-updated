@@ -135,68 +135,63 @@ export const migrationService = {
       summary.errors.push(`Customers error: ${String(err)}`);
     }
 
-    // 2. Orders, Order Items & Order Payments
+    // 2. Orders & Order Items
     try {
+      const { data: dbOrders } = await supabase.from('orders').select('id, order_number');
+      const existingOrderNumbers = new Set((dbOrders || []).map((o) => o.order_number).filter(Boolean));
+      const existingIds = new Set((dbOrders || []).map((o) => o.id));
+
       const orders: Order[] = JSON.parse(localStorage.getItem('annapoorna_orders') || '[]');
       for (const o of orders) {
-        const orderRow = {
-          id: o.id,
-          customer_id: o.customerId || null,
+        const orderNum = o.orderNumber || (o.id.startsWith('ORD-') ? o.id : null);
+        if (orderNum && existingOrderNumbers.has(orderNum)) {
+          summary.orders++;
+          continue;
+        }
+        if (existingIds.has(o.id)) {
+          summary.orders++;
+          continue;
+        }
+
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(o.id);
+        const orderUuid = isUuid ? o.id : (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `ord-${Date.now()}`);
+        const targetNum = orderNum || `ORD-${String(summary.orders + 1).padStart(4, '0')}`;
+
+        const packedNotes = `[Address: ${o.eventAddress || 'Not specified'}] [Event: ${o.eventType || 'Catering'}] [Source: ${o.orderSource || 'Website'}] ${o.notes || ''}`.trim();
+
+        const basePayload = {
+          id: orderUuid,
+          order_number: targetNum,
           customer_name: o.customerName,
-          mobile: o.mobile,
-          alternative_mobile: o.alternativeMobile || null,
-          order_source: o.orderSource || 'Website',
-          event_address: o.eventAddress || '',
-          event_type: o.eventType || null,
-          order_date: o.orderDate,
-          delivery_time: o.deliveryTime || null,
-          guest_count: o.guestCount || null,
-          food_quantities: o.foodQuantities || [],
-          total_amount: o.totalAmount || 0,
+          phone: o.mobile,
+          delivery_date: o.orderDate,
+          order_status: o.status || 'Pending',
           advance_amount: o.advanceAmount || 0,
-          balance_paid: o.balancePaid || 0,
-          payments: o.payments || [],
-          status: o.status || 'Pending',
-          kitchen_sheet_status: o.kitchenSheetStatus || 'Not Prepared',
-          notes: o.notes || null,
-          admin_notes: o.adminNotes || null,
-          invoice_generated: o.invoiceGenerated || false,
-          created_at: o.createdAt || new Date().toISOString(),
+          balance_amount: o.balancePaid || 0,
+          total_amount: o.totalAmount || 0,
+          guest_count: o.guestCount,
+          notes: packedNotes,
         };
 
-        const { error: ordErr } = await supabase.from('orders').upsert(orderRow, { onConflict: 'id' });
+        const { error: ordErr } = await supabase.from('orders').insert(basePayload);
         if (ordErr) {
-          summary.errors.push(`Order ${o.id}: ${ordErr.message}`);
+          summary.errors.push(`Order ${targetNum}: ${ordErr.message}`);
         } else {
           summary.orders++;
+          existingOrderNumbers.add(targetNum);
+          existingIds.add(orderUuid);
 
-          // Migrate order items
           if (Array.isArray(o.items) && o.items.length > 0) {
             const itemRows = o.items.map((it) => ({
-              order_id: o.id,
-              dish_id: it.dishId,
+              order_id: orderUuid,
+              dish_id: null,
               dish_name: it.dishName,
-              category_id: it.categoryId,
               quantity: it.quantity || null,
-              unit: it.unit || null,
-              notes: it.notes || null,
+              unit: it.unit || 'Portions',
+              price: it.price || 0,
             }));
             const { error: itErr } = await supabase.from('order_items').insert(itemRows);
             if (!itErr) summary.orderItems += itemRows.length;
-          }
-
-          // Migrate payments
-          if (Array.isArray(o.payments) && o.payments.length > 0) {
-            const payRows = o.payments.map((p) => ({
-              id: p.id,
-              order_id: o.id,
-              amount: p.amount,
-              date: p.date,
-              method: p.method,
-              note: p.note || null,
-            }));
-            const { error: payErr } = await supabase.from('order_payments').upsert(payRows, { onConflict: 'id' });
-            if (!payErr) summary.orderPayments += payRows.length;
           }
         }
       }
@@ -277,9 +272,9 @@ export const migrationService = {
           name_ta: it.nameTa,
           category_id: it.categoryId,
           unit: it.unit,
-          stock_quantity: it.currentStock || null,
+          stock_quantity: it.stockQuantity || null,
           unit_price: it.unitPrice || null,
-          is_active: true,
+          is_active: it.isActive ?? true,
           created_at: it.createdAt || new Date().toISOString(),
           updated_at: it.updatedAt || new Date().toISOString(),
         }));
@@ -384,3 +379,4 @@ export const migrationService = {
     return summary;
   },
 };
+

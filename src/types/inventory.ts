@@ -30,6 +30,8 @@ export interface InventoryItem {
   categoryId: string;
   unit: InventoryUnit;
   currentStock?: number;
+  stockQuantity?: number;
+  isActive?: boolean;
   purchaseQuantity?: number;
   unitPrice?: number;
   supplierName?: string;
