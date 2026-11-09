@@ -55,3 +55,4 @@ CREATE POLICY "Public Delete Objects"
 ON storage.objects FOR DELETE
 TO public
 USING (bucket_id IN ('dish-images', 'category-images', 'documents'));
+
