@@ -1,5 +1,6 @@
 import type { Customer, Order } from '../types/admin';
 import { orderService } from './orderService';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 const CUSTOMERS_KEY = 'annapoorna_customers';
 const CUSTOMER_COUNTER_KEY = 'annapoorna_customer_counter';
@@ -31,7 +32,89 @@ function generateCustomerId(): string {
   return `CUST-${String(next).padStart(4, '0')}`;
 }
 
+interface SupabaseCustomerRow {
+  id: string;
+  name: string;
+  mobile: string;
+  alternative_mobile?: string | null;
+  email?: string | null;
+  birthday?: string | null;
+  anniversary_date?: string | null;
+  preferred_language?: string | null;
+  marketing_consent?: boolean | null;
+  notes?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+function mapRowToCustomer(row: SupabaseCustomerRow): Customer {
+  return {
+    id: row.id,
+    name: row.name,
+    mobile: row.mobile,
+    alternativeMobile: row.alternative_mobile || undefined,
+    email: row.email || undefined,
+    birthday: row.birthday || undefined,
+    anniversaryDate: row.anniversary_date || undefined,
+    preferredLanguage: (row.preferred_language as 'en' | 'ta') || 'ta',
+    marketingConsent: row.marketing_consent ?? true,
+    notes: row.notes || undefined,
+    createdAt: row.created_at || new Date().toISOString(),
+    updatedAt: row.updated_at || new Date().toISOString(),
+  };
+}
+
+function mapCustomerToRow(customer: Customer): SupabaseCustomerRow {
+  return {
+    id: customer.id,
+    name: customer.name,
+    mobile: customer.mobile,
+    alternative_mobile: customer.alternativeMobile || null,
+    email: customer.email || null,
+    birthday: customer.birthday || null,
+    anniversary_date: customer.anniversaryDate || null,
+    preferred_language: customer.preferredLanguage || 'ta',
+    marketing_consent: customer.marketingConsent ?? true,
+    notes: customer.notes || null,
+    created_at: customer.createdAt,
+    updated_at: customer.updatedAt,
+  };
+}
+
 export const customerService = {
+  /**
+   * Synchronize all customers from Supabase into local cache
+   */
+  async syncFromSupabase(): Promise<Customer[]> {
+    if (!isSupabaseConfigured) return this.getAll();
+
+    try {
+      const { data, error } = await supabase
+        .from('customers')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.warn('Failed to fetch customers from Supabase:', error.message);
+        return this.getAll();
+      }
+
+      if (Array.isArray(data) && data.length > 0) {
+        const mapped = data.map(mapRowToCustomer);
+        // Merge with existing local to prevent loss
+        const existing = this.getAll();
+        const existingMap = new Map(existing.map((c) => [c.id, c]));
+        mapped.forEach((c) => existingMap.set(c.id, c));
+        const merged = Array.from(existingMap.values());
+        localStorage.setItem(CUSTOMERS_KEY, JSON.stringify(merged));
+        return merged;
+      }
+    } catch (err) {
+      console.warn('Customer sync error:', err);
+    }
+    return this.getAll();
+  },
+
   getAll(): Customer[] {
     try {
       const data = JSON.parse(localStorage.getItem(CUSTOMERS_KEY) || '[]') as Customer[];
@@ -73,7 +156,6 @@ export const customerService = {
     // Check if customer with this normalized mobile already exists
     const existing = customers.find((c) => normalizeMobile(c.mobile) === norm);
     if (existing) {
-      // Update existing record if needed
       return this.update(existing.id, {
         name: data.name || existing.name,
         alternativeMobile: data.alternativeMobile || existing.alternativeMobile,
@@ -99,6 +181,20 @@ export const customerService = {
 
     customers.push(newCustomer);
     localStorage.setItem(CUSTOMERS_KEY, JSON.stringify(customers));
+
+    // Save asynchronously to Supabase
+    if (isSupabaseConfigured) {
+      supabase
+        .from('customers')
+        .upsert(mapCustomerToRow(newCustomer), { onConflict: 'id' })
+        .then(
+          ({ error }) => {
+            if (error) console.warn('Supabase customer create error:', error.message);
+          },
+          (err: unknown) => console.warn('Supabase customer create network error:', err)
+        );
+    }
+
     return newCustomer;
   },
 
@@ -117,12 +213,39 @@ export const customerService = {
 
     customers[idx] = updated;
     localStorage.setItem(CUSTOMERS_KEY, JSON.stringify(customers));
+
+    // Update asynchronously in Supabase
+    if (isSupabaseConfigured) {
+      supabase
+        .from('customers')
+        .upsert(mapCustomerToRow(updated), { onConflict: 'id' })
+        .then(
+          ({ error }) => {
+            if (error) console.warn('Supabase customer update error:', error.message);
+          },
+          (err: unknown) => console.warn('Supabase customer update network error:', err)
+        );
+    }
+
     return updated;
   },
 
   delete(id: string): void {
     const customers = this.getAll().filter((c) => c.id !== id);
     localStorage.setItem(CUSTOMERS_KEY, JSON.stringify(customers));
+
+    if (isSupabaseConfigured) {
+      supabase
+        .from('customers')
+        .delete()
+        .eq('id', id)
+        .then(
+          ({ error }) => {
+            if (error) console.warn('Supabase customer delete error:', error.message);
+          },
+          (err: unknown) => console.warn('Supabase customer delete network error:', err)
+        );
+    }
   },
 
   findOrCreateFromOrder(info: {
@@ -135,7 +258,6 @@ export const customerService = {
     const norm = normalizeMobile(info.mobile);
     const existing = this.getByMobile(norm);
     if (existing) {
-      // Keep customer updated
       if (info.customerName && (!existing.name || existing.name.length < info.customerName.length)) {
         this.update(existing.id, { name: info.customerName });
       }
@@ -147,7 +269,7 @@ export const customerService = {
       mobile: norm,
       alternativeMobile: info.alternativeMobile,
       preferredLanguage: info.preferredLanguage || 'ta',
-      marketingConsent: true, // Default to true upon direct customer inquiry
+      marketingConsent: true,
       notes: info.notes ? `Created from order. Notes: ${info.notes}` : undefined,
     });
   },
@@ -176,3 +298,10 @@ export const customerService = {
     };
   },
 };
+
+// Initial background sync
+if (typeof window !== 'undefined' && isSupabaseConfigured) {
+  setTimeout(() => {
+    customerService.syncFromSupabase().catch(() => {});
+  }, 1000);
+}

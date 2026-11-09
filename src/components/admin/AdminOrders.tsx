@@ -827,6 +827,13 @@ export const AdminOrders: React.FC<AdminOrdersProps> = ({ onOpenKitchenSheet: _o
     setOrders(orderService.getAll().sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     ));
+    orderService.syncFromSupabase().then((synced) => {
+      if (synced && Array.isArray(synced)) {
+        setOrders(synced.sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        ));
+      }
+    }).catch(() => {});
   }
 
   useEffect(() => { loadOrders(); }, []);

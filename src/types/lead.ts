@@ -51,3 +51,4 @@ export interface CustomerLead {
   createdAt: string;
   updatedAt: string;
 }
+

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { categories as staticCategories } from '../../data/menu';
 import { dishService, type UnifiedDish } from '../../services/dishService';
+import { storageService } from '../../services/storageService';
 import { MEASUREMENT_UNITS } from '../../data/units';
 import { useLanguage } from '../../context/LanguageContext';
 
@@ -178,13 +179,21 @@ export const AdminDishes: React.FC = () => {
 
     setSaving(true);
     try {
+      let finalImageUrl = form.imagePreview;
+      if (form.imageFile) {
+        const uploadRes = await storageService.uploadDishImage(form.imageFile, form.name);
+        if (uploadRes.url) {
+          finalImageUrl = uploadRes.url;
+        }
+      }
+
       if (editingDish) {
         // Edit existing dish (built-in or custom)
         dishService.updateDish(editingDish.id, {
           name: form.name.trim(),
           nameTa: form.nameTa.trim() || undefined,
           categoryId: form.categoryId,
-          image: form.imagePreview,
+          image: finalImageUrl,
           defaultUnit: form.defaultUnit,
           isActive: form.isActive,
         });
@@ -195,13 +204,15 @@ export const AdminDishes: React.FC = () => {
           name: form.name.trim(),
           nameTa: form.nameTa.trim() || undefined,
           categoryId: form.categoryId,
-          image: form.imagePreview,
+          image: finalImageUrl,
           defaultUnit: form.defaultUnit,
         });
         showToast(isTa ? 'புதிய உணவு வெற்றிகரமாக சேர்க்கப்பட்டது!' : 'New dish added successfully.');
       }
       loadDishes();
       closeForm();
+    } catch (err) {
+      setFormError(isTa ? 'உணவு சேமிப்பதில் பிழை ஏற்பட்டது.' : 'Failed to save dish. Please try again.');
     } finally {
       setSaving(false);
     }

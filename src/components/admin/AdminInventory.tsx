@@ -121,6 +121,12 @@ export const AdminInventory: React.FC = () => {
     setCategories(cats);
     setDocuments(docs);
     setLoading(false);
+
+    inventoryService.syncFromSupabase().then(() => {
+      setItems(inventoryService.getItems());
+      setCategories(inventoryService.getCategories());
+      setDocuments(inventoryService.getDocuments());
+    }).catch(() => {});
   }
 
   // Filtered & Sorted items

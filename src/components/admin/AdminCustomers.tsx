@@ -61,6 +61,9 @@ export const AdminCustomers: React.FC = () => {
 
   function loadCustomers() {
     setCustomers(customerService.getAll());
+    customerService.syncFromSupabase().then((synced) => {
+      if (synced && Array.isArray(synced)) setCustomers(synced);
+    }).catch(() => {});
   }
 
   useEffect(() => {

@@ -1,12 +1,13 @@
 /**
  * dishService — unified dish catalogue & persistence manager
  * Handles both built-in dishes (with editable overrides) and custom admin-added dishes.
- * Preserves historical order details, unit configs, and custom Tamil translations.
+ * Fully connected to Supabase database & storage with instant local fallback.
  */
 import type { AdminDish } from '../types/admin';
 import { categories as staticCategories } from '../data/menu';
 import { getDishUnitConfig } from '../data/units';
 import { ta } from '../locales/ta';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 const DISHES_KEY = 'annapoorna_admin_dishes';
 const DISH_COUNTER_KEY = 'annapoorna_dish_counter';
@@ -53,7 +54,64 @@ function generateDishId(): string {
 }
 
 export const dishService = {
-  // Backward compatibility: get raw admin dishes
+  /**
+   * Synchronizes dishes and overrides from Supabase
+   */
+  async syncFromSupabase(): Promise<void> {
+    if (!isSupabaseConfigured) return;
+
+    try {
+      // 1. Fetch custom dishes
+      const { data: dishesData, error: dishErr } = await supabase
+        .from('dishes')
+        .select('*');
+
+      if (!dishErr && Array.isArray(dishesData)) {
+        const adminDishes: AdminDish[] = dishesData
+          .filter((d) => d.is_admin_added)
+          .map((d) => ({
+            id: d.id,
+            name: d.name,
+            categoryId: d.category_id,
+            image: d.image || '',
+            isAdminAdded: true,
+            defaultUnit: d.default_unit || 'kg',
+            supportedUnits: d.supported_units || undefined,
+          }));
+
+        if (adminDishes.length > 0) {
+          const local = this.getAll();
+          const localMap = new Map(local.map((d) => [d.id, d]));
+          adminDishes.forEach((d) => localMap.set(d.id, d));
+          localStorage.setItem(DISHES_KEY, JSON.stringify(Array.from(localMap.values())));
+        }
+      }
+
+      // 2. Fetch overrides
+      const { data: overrideData, error: ovrErr } = await supabase
+        .from('dish_overrides')
+        .select('*');
+
+      if (!ovrErr && Array.isArray(overrideData)) {
+        const allOverrides = this.getOverrides();
+        overrideData.forEach((row) => {
+          allOverrides[row.dish_id] = {
+            ...(allOverrides[row.dish_id] || {}),
+            name: row.name || undefined,
+            nameTa: row.name_ta || undefined,
+            categoryId: row.category_id || undefined,
+            image: row.image || undefined,
+            defaultUnit: row.default_unit || undefined,
+            isActive: row.is_active ?? true,
+          };
+        });
+        localStorage.setItem(DISH_OVERRIDES_KEY, JSON.stringify(allOverrides));
+      }
+    } catch (err) {
+      console.warn('Dish sync error:', err);
+    }
+  },
+
   getAll(): AdminDish[] {
     try {
       return JSON.parse(localStorage.getItem(DISHES_KEY) || '[]') as AdminDish[];
@@ -74,6 +132,23 @@ export const dishService = {
     const allOverrides = this.getOverrides();
     allOverrides[dishId] = { ...(allOverrides[dishId] || {}), ...changes };
     localStorage.setItem(DISH_OVERRIDES_KEY, JSON.stringify(allOverrides));
+
+    // Save to Supabase
+    if (isSupabaseConfigured) {
+      supabase
+        .from('dish_overrides')
+        .upsert({
+          dish_id: dishId,
+          name: changes.name || null,
+          name_ta: changes.nameTa || null,
+          category_id: changes.categoryId || null,
+          image: changes.image || null,
+          default_unit: changes.defaultUnit || null,
+          is_active: changes.isActive ?? true,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'dish_id' })
+        .then(() => {}, () => {});
+    }
   },
 
   getDeactivatedDishIds(): string[] {
@@ -106,10 +181,6 @@ export const dishService = {
     this.setOverride(dishId, { nameTa });
   },
 
-  /**
-   * Retrieves the comprehensive, unified dish catalogue
-   * Merges static catalogue + admin custom dishes + overrides + unit configurations
-   */
   getAllDishes(): UnifiedDish[] {
     const overrides = this.getOverrides();
     const deactivated = this.getDeactivatedDishIds();
@@ -130,7 +201,6 @@ export const dishService = {
         const currentCat = staticCategories.find((c) => c.id === canonicalCatId);
         const categoryName = currentCat ? currentCat.name : canonicalCatId;
 
-        // Resolve Tamil name
         const nameTa =
           ovr.nameTa ||
           customTamil[item.id] ||
@@ -190,25 +260,16 @@ export const dishService = {
     return list;
   },
 
-  /**
-   * Returns active dishes only, optionally filtered by category
-   */
   getActiveDishes(categoryId?: string): UnifiedDish[] {
     const all = this.getAllDishes().filter((d) => d.isActive);
     if (!categoryId || categoryId === 'all') return all;
     return all.filter((d) => d.categoryId === categoryId);
   },
 
-  /**
-   * Look up a dish by ID (even if deactivated, guaranteeing past order integrity)
-   */
   getDishById(id: string): UnifiedDish | undefined {
     return this.getAllDishes().find((d) => d.id === id);
   },
 
-  /**
-   * Add a new custom dish
-   */
   add(data: Omit<AdminDish, 'id' | 'isAdminAdded'> & { nameTa?: string }): AdminDish {
     const dishes = this.getAll();
     const dishId = generateDishId();
@@ -230,12 +291,31 @@ export const dishService = {
       this.setUnitOverride(dishId, data.defaultUnit);
     }
 
+    // Persist to Supabase
+    if (isSupabaseConfigured) {
+      supabase
+        .from('dishes')
+        .insert({
+          id: dishId,
+          name: data.name,
+          name_ta: data.nameTa || data.name,
+          category_id: data.categoryId,
+          image: data.image || null,
+          is_admin_added: true,
+          default_unit: data.defaultUnit || 'kg',
+          is_active: true,
+        })
+        .then(
+          ({ error }) => {
+            if (error) console.warn('Supabase add dish error:', error.message);
+          },
+          () => {}
+        );
+    }
+
     return dish;
   },
 
-  /**
-   * Update any dish (built-in or admin-added)
-   */
   updateDish(
     id: string,
     changes: {
@@ -247,10 +327,8 @@ export const dishService = {
       isActive?: boolean;
     }
   ): void {
-    // 1. Update override table
     this.setOverride(id, changes);
 
-    // 2. If it's an admin dish, also update the raw admin entry
     const dishes = this.getAll();
     const idx = dishes.findIndex((d) => d.id === id);
     if (idx !== -1) {
@@ -264,17 +342,13 @@ export const dishService = {
       localStorage.setItem(DISHES_KEY, JSON.stringify(dishes));
     }
 
-    // 3. Update Tamil name if provided
     if (changes.nameTa) {
       this.setCustomTamilName(id, changes.nameTa);
     }
-
-    // 4. Update unit override if provided
     if (changes.defaultUnit) {
       this.setUnitOverride(id, changes.defaultUnit);
     }
 
-    // 5. Update active status if provided
     if (changes.isActive !== undefined) {
       if (changes.isActive) {
         this.reactivateDish(id);
@@ -282,17 +356,30 @@ export const dishService = {
         this.deactivateDish(id);
       }
     }
+
+    // Sync to Supabase
+    if (isSupabaseConfigured) {
+      supabase
+        .from('dishes')
+        .upsert({
+          id,
+          name: changes.name,
+          name_ta: changes.nameTa,
+          category_id: changes.categoryId,
+          image: changes.image,
+          default_unit: changes.defaultUnit,
+          is_active: changes.isActive,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'id' })
+        .then(() => {}, () => {});
+    }
   },
 
-  // Backward compatibility alias
   update(id: string, changes: Partial<Omit<AdminDish, 'id' | 'isAdminAdded'>>): AdminDish | undefined {
     this.updateDish(id, changes);
     return this.getAll().find((d) => d.id === id);
   },
 
-  /**
-   * Soft-deactivate a dish so it disappears from customer menu while preserving orders
-   */
   deactivateDish(id: string): void {
     const deactivated = this.getDeactivatedDishIds();
     if (!deactivated.includes(id)) {
@@ -300,33 +387,35 @@ export const dishService = {
       localStorage.setItem(DEACTIVATED_DISHES_KEY, JSON.stringify(deactivated));
     }
     this.setOverride(id, { isActive: false });
+
+    if (isSupabaseConfigured) {
+      supabase.from('dishes').update({ is_active: false }).eq('id', id).then(() => {}, () => {});
+    }
   },
 
-  /**
-   * Reactivate a previously deactivated dish
-   */
   reactivateDish(id: string): void {
     const deactivated = this.getDeactivatedDishIds().filter((d) => d !== id);
     localStorage.setItem(DEACTIVATED_DISHES_KEY, JSON.stringify(deactivated));
     this.setOverride(id, { isActive: true });
+
+    if (isSupabaseConfigured) {
+      supabase.from('dishes').update({ is_active: true }).eq('id', id).then(() => {}, () => {});
+    }
   },
 
-  /**
-   * Deletes or soft-deactivates dish
-   */
   deleteDish(id: string): void {
     const adminDishes = this.getAll();
     const isCustom = adminDishes.some((d) => d.id === id);
     if (isCustom) {
-      // Filter from admin dishes
       const updated = adminDishes.filter((d) => d.id !== id);
       localStorage.setItem(DISHES_KEY, JSON.stringify(updated));
+      if (isSupabaseConfigured) {
+        supabase.from('dishes').delete().eq('id', id).then(() => {}, () => {});
+      }
     }
-    // Always deactivate to guarantee order safety
     this.deactivateDish(id);
   },
 
-  // Backward compatibility alias
   delete(id: string): void {
     this.deleteDish(id);
   },
@@ -357,3 +446,10 @@ export const dishService = {
     return overrides[dishId];
   },
 };
+
+// Initial background sync
+if (typeof window !== 'undefined' && isSupabaseConfigured) {
+  setTimeout(() => {
+    dishService.syncFromSupabase().catch(() => {});
+  }, 1400);
+}

@@ -49,6 +49,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
   useEffect(() => {
     setOrders(orderService.getAll());
     setCustomerCount(customerService.getAll().length);
+
+    Promise.all([
+      orderService.syncFromSupabase(),
+      customerService.syncFromSupabase(),
+    ]).then(([syncedOrders, syncedCustomers]) => {
+      if (syncedOrders) setOrders(syncedOrders);
+      if (syncedCustomers) setCustomerCount(syncedCustomers.length);
+    }).catch(() => {});
   }, []);
 
   const totalOrders = orders.length;

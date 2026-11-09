@@ -117,6 +117,15 @@ export const AdminLeads: React.FC<AdminLeadsProps> = ({ onNavigateToOrders }) =>
       const updated = all.find((l) => l.id === viewingLead.id);
       if (updated) setViewingLead(updated);
     }
+    leadService.syncFromSupabase().then((synced) => {
+      if (synced && Array.isArray(synced)) {
+        setLeads(synced);
+        if (viewingLead) {
+          const up = synced.find((l) => l.id === viewingLead.id);
+          if (up) setViewingLead(up);
+        }
+      }
+    }).catch(() => {});
   }, [viewingLead]);
 
   useEffect(() => {

@@ -1,5 +1,6 @@
 import type { Campaign, CampaignType, CampaignStatus } from '../types/admin';
 import { siteConfig, getBusinessName } from '../config/site';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 const CAMPAIGNS_KEY = 'annapoorna_campaigns';
 const CAMPAIGN_COUNTER_KEY = 'annapoorna_campaign_counter';
@@ -110,6 +111,37 @@ export function replacePlaceholders(
 }
 
 export const campaignService = {
+  /**
+   * Synchronize campaigns from Supabase
+   */
+  async syncFromSupabase(): Promise<void> {
+    if (!isSupabaseConfigured) return;
+
+    try {
+      const { data, error } = await supabase.from('campaigns').select('*');
+      if (!error && Array.isArray(data) && data.length > 0) {
+        const mapped: Campaign[] = data.map((c) => ({
+          id: c.id,
+          title: c.title,
+          type: c.type,
+          language: c.language,
+          messageTemplate: c.message_template,
+          recipientFilter: c.recipient_filter,
+          recipientIds: c.recipient_ids || [],
+          recipientCount: c.recipient_count || 0,
+          status: c.status,
+          channel: c.channel,
+          notes: c.notes || undefined,
+          sentAt: c.sent_at || undefined,
+          createdAt: c.created_at,
+        }));
+        localStorage.setItem(CAMPAIGNS_KEY, JSON.stringify(mapped));
+      }
+    } catch (err) {
+      console.warn('Campaign sync error:', err);
+    }
+  },
+
   getAll(): Campaign[] {
     try {
       return JSON.parse(localStorage.getItem(CAMPAIGNS_KEY) || '[]') as Campaign[];
@@ -131,6 +163,25 @@ export const campaignService = {
     };
     list.unshift(campaign);
     localStorage.setItem(CAMPAIGNS_KEY, JSON.stringify(list));
+
+    if (isSupabaseConfigured) {
+      supabase.from('campaigns').insert({
+        id: campaign.id,
+        title: campaign.title,
+        type: campaign.type,
+        language: campaign.language,
+        message_template: campaign.messageTemplate,
+        recipient_filter: campaign.recipientFilter,
+        recipient_ids: campaign.recipientIds,
+        recipient_count: campaign.recipientCount,
+        status: campaign.status,
+        channel: campaign.channel,
+        notes: campaign.notes || null,
+        sent_at: campaign.sentAt || null,
+        created_at: campaign.createdAt,
+      }).then(() => {}, () => {});
+    }
+
     return campaign;
   },
 
@@ -144,17 +195,26 @@ export const campaignService = {
       sentAt: sentAt || (status === 'Sent' ? new Date().toISOString() : list[idx].sentAt),
     };
     localStorage.setItem(CAMPAIGNS_KEY, JSON.stringify(list));
+
+    if (isSupabaseConfigured) {
+      supabase.from('campaigns').update({
+        status,
+        sent_at: list[idx].sentAt || null,
+      }).eq('id', id).then(() => {}, () => {});
+    }
+
     return list[idx];
   },
 
   delete(id: string): void {
     const list = this.getAll().filter((c) => c.id !== id);
     localStorage.setItem(CAMPAIGNS_KEY, JSON.stringify(list));
+
+    if (isSupabaseConfigured) {
+      supabase.from('campaigns').delete().eq('id', id).then(() => {}, () => {});
+    }
   },
 
-  /**
-   * Generates a direct WhatsApp link for one customer
-   */
   generateDirectWhatsAppLink(
     mobile: string,
     message: string
@@ -164,12 +224,16 @@ export const campaignService = {
     return `https://wa.me/${clean}?text=${encodeURIComponent(message)}`;
   },
 
-  /**
-   * Checks if official WhatsApp Business Cloud API environment variables are present.
-   */
   isApiConfigured(): boolean {
     const token = import.meta.env.VITE_WHATSAPP_API_TOKEN;
     const phoneId = import.meta.env.VITE_WHATSAPP_PHONE_NUMBER_ID;
     return Boolean(token && phoneId);
   },
 };
+
+// Initial background sync
+if (typeof window !== 'undefined' && isSupabaseConfigured) {
+  setTimeout(() => {
+    campaignService.syncFromSupabase().catch(() => {});
+  }, 2800);
+}

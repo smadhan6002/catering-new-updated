@@ -92,6 +92,12 @@ export const AdminRentalItems: React.FC = () => {
     setDocuments(rentalService.getAllDocuments());
     setItems(rentalService.getAllItems());
     setCategories(rentalService.getCategories());
+
+    rentalService.syncFromSupabase().then(() => {
+      setDocuments(rentalService.getAllDocuments());
+      setItems(rentalService.getAllItems());
+      setCategories(rentalService.getCategories());
+    }).catch(() => {});
   }
 
   useEffect(() => {

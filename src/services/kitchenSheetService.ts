@@ -1,11 +1,11 @@
 /**
- * kitchenSheetService — localStorage-based kitchen order sheet persistence.
- * Designed to map cleanly to Supabase or any REST/SQL backend in the future.
+ * kitchenSheetService — Kitchen Order Sheet persistence with Supabase & local storage
  */
 import type { Order, KitchenOrderSheet, KitchenSheetItem, KitchenPrepStatus } from '../types/admin';
 import { orderService } from './orderService';
 import { getDishUnitConfig } from '../data/units';
 import { ta } from '../locales/ta';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 const KITCHEN_SHEETS_KEY = 'annapoorna_kitchen_sheets';
 
@@ -54,6 +54,41 @@ export function formatUnitLabel(unit: string, isTamil = false): string {
 }
 
 export const kitchenSheetService = {
+  /**
+   * Synchronize kitchen sheets from Supabase
+   */
+  async syncFromSupabase(): Promise<void> {
+    if (!isSupabaseConfigured) return;
+
+    try {
+      const { data, error } = await supabase.from('kitchen_sheets').select('*');
+      if (!error && Array.isArray(data) && data.length > 0) {
+        const mapped: KitchenOrderSheet[] = data.map((row) => ({
+          id: row.id,
+          orderId: row.order_id,
+          customerName: row.customer_name,
+          mobile: row.mobile,
+          alternativeMobile: row.alternative_mobile || undefined,
+          eventAddress: row.event_address || undefined,
+          eventType: row.event_type || undefined,
+          orderDate: row.order_date,
+          deliveryTime: row.delivery_time || undefined,
+          guestCount: row.guest_count ?? null,
+          items: Array.isArray(row.items) ? row.items : [],
+          status: row.status as KitchenPrepStatus,
+          cookingInstructions: row.cooking_instructions || '',
+          chefNotes: row.chef_notes || '',
+          pdfLanguage: row.pdf_language || 'both',
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        }));
+        localStorage.setItem(KITCHEN_SHEETS_KEY, JSON.stringify(mapped));
+      }
+    } catch (err) {
+      console.warn('Kitchen sheets sync error:', err);
+    }
+  },
+
   getAll(): KitchenOrderSheet[] {
     try {
       return JSON.parse(localStorage.getItem(KITCHEN_SHEETS_KEY) || '[]') as KitchenOrderSheet[];
@@ -72,11 +107,9 @@ export const kitchenSheetService = {
       return existing;
     }
 
-    // Compile items from customer's order
     const items: KitchenSheetItem[] = [];
     const processedDishIds = new Set<string>();
 
-    // 1. Items selected by customer
     (order.items || []).forEach((item, index) => {
       processedDishIds.add(item.dishId || item.dishName);
 
@@ -87,7 +120,6 @@ export const kitchenSheetService = {
       const customerQty = item.quantity ?? matchedFq?.quantity ?? null;
       const customerUnit = item.unit ?? matchedFq?.unit ?? '';
 
-      // Determine appropriate default unit
       const unitCfg = getDishUnitConfig(item.categoryId);
       const chosenUnit = customerUnit || unitCfg.defaultUnit || 'kg';
 
@@ -105,7 +137,6 @@ export const kitchenSheetService = {
       });
     });
 
-    // 2. Extra customer food quantities if not already listed
     if (order.foodQuantities) {
       order.foodQuantities.forEach((fq, idx) => {
         if (!processedDishIds.has(fq.dishId) && !processedDishIds.has(fq.dishName)) {
@@ -166,7 +197,6 @@ export const kitchenSheetService = {
 
     localStorage.setItem(KITCHEN_SHEETS_KEY, JSON.stringify(sheets));
 
-    // Also update order's kitchenSheetStatus in orderService without mutating order.status
     try {
       const order = orderService.getById(sheet.orderId);
       if (order && order.kitchenSheetStatus !== sheet.status) {
@@ -176,13 +206,34 @@ export const kitchenSheetService = {
       // safe fallback
     }
 
+    // Persist to Supabase
+    if (isSupabaseConfigured) {
+      supabase.from('kitchen_sheets').upsert({
+        id: updatedSheet.id,
+        order_id: updatedSheet.orderId,
+        customer_name: updatedSheet.customerName,
+        mobile: updatedSheet.mobile,
+        alternative_mobile: updatedSheet.alternativeMobile || null,
+        event_address: updatedSheet.eventAddress || null,
+        event_type: updatedSheet.eventType || null,
+        order_date: updatedSheet.orderDate,
+        delivery_time: updatedSheet.deliveryTime || null,
+        guest_count: updatedSheet.guestCount,
+        items: updatedSheet.items,
+        status: updatedSheet.status,
+        cooking_instructions: updatedSheet.cookingInstructions || null,
+        chef_notes: updatedSheet.chefNotes || null,
+        pdf_language: updatedSheet.pdfLanguage,
+        updated_at: updatedSheet.updatedAt,
+      }, { onConflict: 'order_id' }).then(() => {}, () => {});
+    }
+
     return updatedSheet;
   },
 
   updateStatus(orderId: string, status: KitchenPrepStatus): KitchenOrderSheet | undefined {
     const sheet = this.getByOrderId(orderId);
     if (!sheet) {
-      // If sheet doesn't exist yet, create from order
       const order = orderService.getById(orderId);
       if (!order) return undefined;
       const newSheet = this.getOrCreateForOrder(order);
@@ -196,5 +247,16 @@ export const kitchenSheetService = {
   delete(orderId: string): void {
     const sheets = this.getAll().filter((s) => s.orderId !== orderId);
     localStorage.setItem(KITCHEN_SHEETS_KEY, JSON.stringify(sheets));
+
+    if (isSupabaseConfigured) {
+      supabase.from('kitchen_sheets').delete().eq('order_id', orderId).then(() => {}, () => {});
+    }
   },
 };
+
+// Initial background sync
+if (typeof window !== 'undefined' && isSupabaseConfigured) {
+  setTimeout(() => {
+    kitchenSheetService.syncFromSupabase().catch(() => {});
+  }, 2200);
+}

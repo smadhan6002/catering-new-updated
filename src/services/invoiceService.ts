@@ -1,7 +1,8 @@
 /**
- * invoiceService — localStorage-based invoice tracking
+ * invoiceService — Invoice persistence with Supabase & local storage
  */
 import type { Invoice } from '../types/admin';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 const INVOICES_KEY = 'annapoorna_invoices';
 const INV_COUNTER_KEY = 'annapoorna_invoice_counter';
@@ -17,6 +18,27 @@ function generateInvoiceId(): string {
 }
 
 export const invoiceService = {
+  /**
+   * Synchronize invoices from Supabase
+   */
+  async syncFromSupabase(): Promise<void> {
+    if (!isSupabaseConfigured) return;
+
+    try {
+      const { data, error } = await supabase.from('invoices').select('*');
+      if (!error && Array.isArray(data) && data.length > 0) {
+        const mapped: Invoice[] = data.map((row) => ({
+          id: row.id,
+          orderId: row.order_id,
+          generatedAt: row.generated_at,
+        }));
+        localStorage.setItem(INVOICES_KEY, JSON.stringify(mapped));
+      }
+    } catch (err) {
+      console.warn('Invoices sync error:', err);
+    }
+  },
+
   getAll(): Invoice[] {
     try {
       return JSON.parse(localStorage.getItem(INVOICES_KEY) || '[]') as Invoice[];
@@ -30,7 +52,6 @@ export const invoiceService = {
   },
 
   create(orderId: string): Invoice {
-    // If invoice already exists for this order, return it
     const existing = this.getByOrderId(orderId);
     if (existing) return existing;
 
@@ -42,6 +63,22 @@ export const invoiceService = {
     };
     invoices.push(invoice);
     localStorage.setItem(INVOICES_KEY, JSON.stringify(invoices));
+
+    if (isSupabaseConfigured) {
+      supabase.from('invoices').insert({
+        id: invoice.id,
+        order_id: invoice.orderId,
+        generated_at: invoice.generatedAt,
+      }).then(() => {}, () => {});
+    }
+
     return invoice;
   },
 };
+
+// Initial background sync
+if (typeof window !== 'undefined' && isSupabaseConfigured) {
+  setTimeout(() => {
+    invoiceService.syncFromSupabase().catch(() => {});
+  }, 2400);
+}

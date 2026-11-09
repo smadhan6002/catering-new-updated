@@ -1,12 +1,14 @@
 /**
  * inventoryService — Grocery & Vegetable Inventory Management System
- * Data persistence using localStorage with snapshots for past documents.
+ * Connected to Supabase (inventory_items, inventory_categories, purchase_documents, purchase_items)
+ * with robust local cache fallback and exact decimal quantity preservation.
  */
 import type {
   InventoryCategory,
   InventoryItem,
   InventoryDocument,
 } from '../types/inventory';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 const INVENTORY_ITEMS_KEY = 'kanchi_inventory_items';
 const INVENTORY_CATEGORIES_KEY = 'kanchi_inventory_categories';
@@ -51,10 +53,6 @@ export function formatUnitLabel(unit: string, lang: 'en' | 'ta' = 'en'): string 
   return unit;
 }
 
-/**
- * Initial catalogue containing common catering ingredients in English & Tamil.
- * Note: No stock or price data is assigned by default to respect user rule.
- */
 export const INITIAL_INVENTORY_ITEMS: Omit<InventoryItem, 'id' | 'createdAt' | 'updatedAt'>[] = [
   // Grocery Items
   { nameEn: 'Rice', nameTa: 'அரிசி', categoryId: 'cat-grocery', unit: 'kg' },
@@ -98,57 +96,137 @@ export const INITIAL_INVENTORY_ITEMS: Omit<InventoryItem, 'id' | 'createdAt' | '
   { nameEn: 'Cardamom', nameTa: 'ஏலக்காய்', categoryId: 'cat-spices', unit: 'g' },
   { nameEn: 'Cloves', nameTa: 'கிராம்பு', categoryId: 'cat-spices', unit: 'g' },
   { nameEn: 'Cinnamon', nameTa: 'பட்டை', categoryId: 'cat-spices', unit: 'g' },
+  { nameEn: 'Biryani Leaves', nameTa: 'பிரியாணி இலை', categoryId: 'cat-spices', unit: 'packets' },
+  { nameEn: 'Fennel Seeds', nameTa: 'சோம்பு', categoryId: 'cat-spices', unit: 'g' },
+  { nameEn: 'Sambar Powder', nameTa: 'சாம்பார் தூள்', categoryId: 'cat-spices', unit: 'packets' },
+  { nameEn: 'Rasam Powder', nameTa: 'ரசம் தூள்', categoryId: 'cat-spices', unit: 'packets' },
+
+  // Oils & Ingredients
+  { nameEn: 'Sunflower Oil', nameTa: 'சூரியகாந்தி எண்ணெய்', categoryId: 'cat-oils', unit: 'L' },
+  { nameEn: 'Gingelly Oil / Sesame Oil', nameTa: 'நல்லெண்ணெய்', categoryId: 'cat-oils', unit: 'L' },
+  { nameEn: 'Pure Ghee', nameTa: 'நெய்', categoryId: 'cat-oils', unit: 'L' },
+  { nameEn: 'Vanaspati', nameTa: 'வனஸ்பதி', categoryId: 'cat-oils', unit: 'L' },
+  { nameEn: 'Butter', nameTa: 'வெண்ணெய்', categoryId: 'cat-oils', unit: 'kg' },
+  { nameEn: 'Paneer', nameTa: 'பன்னீர்', categoryId: 'cat-oils', unit: 'kg' },
+  { nameEn: 'Curd', nameTa: 'தயிர்', categoryId: 'cat-oils', unit: 'L' },
+  { nameEn: 'Fresh Milk', nameTa: 'பால்', categoryId: 'cat-oils', unit: 'L' },
 
   // Vegetables
-  { nameEn: 'Onion', nameTa: 'வெங்காயம்', categoryId: 'cat-vegetables', unit: 'kg' },
+  { nameEn: 'Onion (Big)', nameTa: 'பெரிய வெங்காயம்', categoryId: 'cat-vegetables', unit: 'kg' },
+  { nameEn: 'Small Onion / Shallots', nameTa: 'சின்ன வெங்காயம்', categoryId: 'cat-vegetables', unit: 'kg' },
   { nameEn: 'Tomato', nameTa: 'தக்காளி', categoryId: 'cat-vegetables', unit: 'kg' },
   { nameEn: 'Potato', nameTa: 'உருளைக்கிழங்கு', categoryId: 'cat-vegetables', unit: 'kg' },
   { nameEn: 'Carrot', nameTa: 'கேரட்', categoryId: 'cat-vegetables', unit: 'kg' },
   { nameEn: 'Beans', nameTa: 'பீன்ஸ்', categoryId: 'cat-vegetables', unit: 'kg' },
   { nameEn: 'Cabbage', nameTa: 'முட்டைகோஸ்', categoryId: 'cat-vegetables', unit: 'kg' },
-  { nameEn: 'Cauliflower', nameTa: 'காலிஃபிளவர்', categoryId: 'cat-vegetables', unit: 'pcs' },
   { nameEn: 'Beetroot', nameTa: 'பீட்ரூட்', categoryId: 'cat-vegetables', unit: 'kg' },
-  { nameEn: 'Green Chilli', nameTa: 'பச்சை மிளகாய்', categoryId: 'cat-vegetables', unit: 'kg' },
-  { nameEn: 'Capsicum', nameTa: 'குடைமிளகாய்', categoryId: 'cat-vegetables', unit: 'kg' },
-  { nameEn: 'Brinjal', nameTa: 'கத்தரிக்காய்', categoryId: 'cat-vegetables', unit: 'kg' },
+  { nameEn: 'Brinjal / Eggplant', nameTa: 'கத்திரிக்காய்', categoryId: 'cat-vegetables', unit: 'kg' },
+  { nameEn: 'Ladies Finger / Okra', nameTa: 'வெண்டைக்காய்', categoryId: 'cat-vegetables', unit: 'kg' },
   { nameEn: 'Drumstick', nameTa: 'முருங்கைக்காய்', categoryId: 'cat-vegetables', unit: 'kg' },
-  { nameEn: 'Raw Banana', nameTa: 'வாழைக்காய்', categoryId: 'cat-vegetables', unit: 'pcs' },
-  { nameEn: 'Plantain', nameTa: 'வாழைக்காய்', categoryId: 'cat-vegetables', unit: 'pcs' },
-  { nameEn: 'Pumpkin', nameTa: 'பூசணிக்காய்', categoryId: 'cat-vegetables', unit: 'kg' },
-  { nameEn: 'Bottle Gourd', nameTa: 'சுரைக்காய்', categoryId: 'cat-vegetables', unit: 'kg' },
-  { nameEn: 'Bitter Gourd', nameTa: 'பாகற்காய்', categoryId: 'cat-vegetables', unit: 'kg' },
-  { nameEn: 'Snake Gourd', nameTa: 'புடலங்காய்', categoryId: 'cat-vegetables', unit: 'kg' },
-  { nameEn: 'Ladies Finger', nameTa: 'வெண்டைக்காய்', categoryId: 'cat-vegetables', unit: 'kg' },
-  { nameEn: 'Cucumber', nameTa: 'வெள்ளரிக்காய்', categoryId: 'cat-vegetables', unit: 'kg' },
-  { nameEn: 'Radish', nameTa: 'முள்ளங்கி', categoryId: 'cat-vegetables', unit: 'kg' },
-  { nameEn: 'Green Peas', nameTa: 'பச்சை பட்டாணி', categoryId: 'cat-vegetables', unit: 'kg' },
+  { nameEn: 'Cauliflower', nameTa: 'காலிஃபிளவர்', categoryId: 'cat-vegetables', unit: 'pcs' },
+  { nameEn: 'Green Chilli', nameTa: 'பச்சை மிளகாய்', categoryId: 'cat-vegetables', unit: 'kg' },
   { nameEn: 'Ginger', nameTa: 'இஞ்சி', categoryId: 'cat-vegetables', unit: 'kg' },
   { nameEn: 'Garlic', nameTa: 'பூண்டு', categoryId: 'cat-vegetables', unit: 'kg' },
-  { nameEn: 'Curry Leaves', nameTa: 'கறிவேப்பிலை', categoryId: 'cat-vegetables', unit: 'bundles' },
   { nameEn: 'Coriander Leaves', nameTa: 'கொத்தமல்லி தழை', categoryId: 'cat-vegetables', unit: 'bundles' },
+  { nameEn: 'Curry Leaves', nameTa: 'கறிவேப்பிலை', categoryId: 'cat-vegetables', unit: 'bundles' },
   { nameEn: 'Mint Leaves', nameTa: 'புதினா', categoryId: 'cat-vegetables', unit: 'bundles' },
-  { nameEn: 'Lemon', nameTa: 'எலுமிச்சம்பழம்', categoryId: 'cat-vegetables', unit: 'pcs' },
-
-  // Oils & Other Ingredients
-  { nameEn: 'Cooking Oil', nameTa: 'சமையல் எண்ணெய்', categoryId: 'cat-oils', unit: 'L' },
-  { nameEn: 'Gingelly Oil', nameTa: 'நல்லெண்ணெய்', categoryId: 'cat-oils', unit: 'L' },
-  { nameEn: 'Ghee', nameTa: 'நெய்', categoryId: 'cat-oils', unit: 'L' },
-  { nameEn: 'Butter', nameTa: 'வெண்ணெய்', categoryId: 'cat-oils', unit: 'kg' },
-  { nameEn: 'Mustard Oil', nameTa: 'கடுகு எண்ணெய்', categoryId: 'cat-oils', unit: 'L' },
-  { nameEn: 'Cooking Soda', nameTa: 'சமையல் சோடா', categoryId: 'cat-oils', unit: 'packets' },
-  { nameEn: 'Baking Powder', nameTa: 'பேக்கிங் பவுடர்', categoryId: 'cat-oils', unit: 'packets' },
-  { nameEn: 'Food Colour', nameTa: 'உணவு வண்ணம்', categoryId: 'cat-oils', unit: 'packets' },
-  { nameEn: 'Vinegar', nameTa: 'வினிகர்', categoryId: 'cat-oils', unit: 'L' },
+  { nameEn: 'Raw Banana', nameTa: 'வாழைக்காய்', categoryId: 'cat-vegetables', unit: 'pcs' },
+  { nameEn: 'Chayote / Chow Chow', nameTa: 'சௌசௌ', categoryId: 'cat-vegetables', unit: 'kg' },
+  { nameEn: 'Ash Gourd / White Pumpkin', nameTa: 'வெண்பூசணி', categoryId: 'cat-vegetables', unit: 'kg' },
+  { nameEn: 'Yellow Pumpkin', nameTa: 'மஞ்சள் பூசணி', categoryId: 'cat-vegetables', unit: 'kg' },
+  { nameEn: 'Snake Gourd', nameTa: 'புடலங்காய்', categoryId: 'cat-vegetables', unit: 'kg' },
+  { nameEn: 'Bottle Gourd', nameTa: 'சுரைக்காய்', categoryId: 'cat-vegetables', unit: 'kg' },
+  { nameEn: 'Ridge Gourd', nameTa: 'பீர்க்கங்காய்', categoryId: 'cat-vegetables', unit: 'kg' },
+  { nameEn: 'Bitter Gourd', nameTa: 'பாகற்காய்', categoryId: 'cat-vegetables', unit: 'kg' },
+  { nameEn: 'Colocasia / Seppankizhangu', nameTa: 'சேப்பங்கிழங்கு', categoryId: 'cat-vegetables', unit: 'kg' },
+  { nameEn: 'Elephant Yam / Senai', nameTa: 'சேனைக்கிழங்கு', categoryId: 'cat-vegetables', unit: 'kg' },
+  { nameEn: 'Mushroom', nameTa: 'காளான்', categoryId: 'cat-vegetables', unit: 'packets' },
+  { nameEn: 'Baby Corn', nameTa: 'பேபி கார்ன்', categoryId: 'cat-vegetables', unit: 'packets' },
+  { nameEn: 'Capsicum', nameTa: 'குடைமிளகாய்', categoryId: 'cat-vegetables', unit: 'kg' },
+  { nameEn: 'Cucumber', nameTa: 'வெள்ளரிக்காய்', categoryId: 'cat-vegetables', unit: 'kg' },
+  { nameEn: 'Lemon', nameTa: 'எலுமிச்சை', categoryId: 'cat-vegetables', unit: 'pcs' },
 
   // Fruits
-  { nameEn: 'Banana', nameTa: 'வாழைப்பழம்', categoryId: 'cat-fruits', unit: 'dozens' },
+  { nameEn: 'Banana (Poovan)', nameTa: 'பூவன் வாழைப்பழம்', categoryId: 'cat-fruits', unit: 'dozens' },
+  { nameEn: 'Banana (Sevvalai)', nameTa: 'செவ்வாழை', categoryId: 'cat-fruits', unit: 'dozens' },
   { nameEn: 'Apple', nameTa: 'ஆப்பிள்', categoryId: 'cat-fruits', unit: 'kg' },
-  { nameEn: 'Orange', nameTa: 'ஆரஞ்சு', categoryId: 'cat-fruits', unit: 'kg' },
-  { nameEn: 'Grapes', nameTa: 'திராட்சை', categoryId: 'cat-fruits', unit: 'kg' },
+  { nameEn: 'Sweet Orange / Mosambi', nameTa: 'சாத்துக்குடி', categoryId: 'cat-fruits', unit: 'kg' },
   { nameEn: 'Pomegranate', nameTa: 'மாதுளை', categoryId: 'cat-fruits', unit: 'kg' },
+  { nameEn: 'Grapes', nameTa: 'திராட்சை', categoryId: 'cat-fruits', unit: 'kg' },
+  { nameEn: 'Pineapple', nameTa: 'அன்னாசிப்பழம்', categoryId: 'cat-fruits', unit: 'pcs' },
+  { nameEn: 'Watermelon', nameTa: 'தர்பூசணி', categoryId: 'cat-fruits', unit: 'kg' },
+  { nameEn: 'Mango', nameTa: 'மாம்பழம்', categoryId: 'cat-fruits', unit: 'kg' },
+
+  // Other Items
+  { nameEn: 'Banana Leaf (Meals)', nameTa: 'சாப்பாட்டு வாழை இலை', categoryId: 'cat-other', unit: 'pcs' },
+  { nameEn: 'Tiffin Leaf', nameTa: 'டிபன் இலை', categoryId: 'cat-other', unit: 'pcs' },
+  { nameEn: 'Betel Leaves & Areca Nut', nameTa: 'வெற்றிலை பாக்கு', categoryId: 'cat-other', unit: 'packets' },
+  { nameEn: 'Paper Rolls / Napkins', nameTa: 'டிஷ்யூ பேப்பர் / நேப்கின்', categoryId: 'cat-other', unit: 'packets' },
+  { nameEn: 'Water Cans (20L)', nameTa: 'மினரல் வாட்டர் கேன்', categoryId: 'cat-other', unit: 'pcs' },
+  { nameEn: 'Paper Cups', nameTa: 'பேப்பர் கப்', categoryId: 'cat-other', unit: 'packets' },
 ];
 
 export const inventoryService = {
+  /**
+   * Synchronizes categories, items, and purchase docs from Supabase
+   */
+  async syncFromSupabase(): Promise<void> {
+    if (!isSupabaseConfigured) return;
+
+    try {
+      // 1. Categories
+      const { data: catData, error: catErr } = await supabase.from('inventory_categories').select('*');
+      if (!catErr && Array.isArray(catData) && catData.length > 0) {
+        const mappedCats: InventoryCategory[] = catData.map((c) => ({
+          id: c.id,
+          nameEn: c.name_en,
+          nameTa: c.name_ta,
+        }));
+        localStorage.setItem(INVENTORY_CATEGORIES_KEY, JSON.stringify(mappedCats));
+      }
+
+      // 2. Items
+      const { data: itemData, error: itemErr } = await supabase.from('inventory_items').select('*');
+      if (!itemErr && Array.isArray(itemData) && itemData.length > 0) {
+        const mappedItems: InventoryItem[] = itemData.map((it) => ({
+          id: it.id,
+          nameEn: it.name_en,
+          nameTa: it.name_ta,
+          categoryId: it.category_id,
+          unit: it.unit,
+          currentStock: it.stock_quantity ?? undefined,
+          unitPrice: it.unit_price ?? undefined,
+          createdAt: it.created_at,
+          updatedAt: it.updated_at,
+        }));
+        localStorage.setItem(INVENTORY_ITEMS_KEY, JSON.stringify(mappedItems));
+      }
+
+      // 3. Purchase Documents
+      const { data: docData, error: docErr } = await supabase.from('purchase_documents').select('*');
+      if (!docErr && Array.isArray(docData) && docData.length > 0) {
+        const mappedDocs: InventoryDocument[] = docData.map((d) => ({
+          id: d.id,
+          docNumber: d.doc_number || d.docNumber || `DOC-${d.id.slice(-6)}`,
+          title: d.title,
+          eventName: d.event_name,
+          customerName: d.customer_name || undefined,
+          eventDate: d.event_date || d.document_date || new Date().toISOString(),
+          documentDate: d.document_date,
+          preparedBy: d.prepared_by || undefined,
+          notes: d.notes || undefined,
+          language: (d.language === 'ta' ? 'ta' : 'en') as 'en' | 'ta',
+          totalAmount: d.total_amount ? Number(d.total_amount) : undefined,
+          items: Array.isArray(d.items) ? d.items : [],
+          createdAt: d.created_at,
+        }));
+        localStorage.setItem(INVENTORY_DOCS_KEY, JSON.stringify(mappedDocs));
+      }
+    } catch (err) {
+      console.warn('Inventory sync error:', err);
+    }
+  },
+
   // ─── CATEGORIES ──────────────────────────────────────────
   getCategories(): InventoryCategory[] {
     try {
@@ -163,30 +241,31 @@ export const inventoryService = {
     }
   },
 
-  addCategory(category: { nameEn: string; nameTa: string }): InventoryCategory {
+  addCategory(categoryOrEn: { nameEn: string; nameTa: string } | string, maybeTa?: string): InventoryCategory {
     const categories = this.getCategories();
-    const slug = category.nameEn.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 18);
-    const newCat: InventoryCategory = {
-      id: `cat-custom-${Date.now()}-${slug}`,
-      nameEn: category.nameEn.trim(),
-      nameTa: category.nameTa.trim() || category.nameEn.trim(),
-      isCustom: true,
-    };
+    const id = `cat-${Date.now()}`;
+    const nameEn = typeof categoryOrEn === 'object' ? categoryOrEn.nameEn : categoryOrEn;
+    const nameTa = typeof categoryOrEn === 'object' ? categoryOrEn.nameTa : (maybeTa || '');
+    const newCat: InventoryCategory = { id, nameEn, nameTa };
     categories.push(newCat);
     localStorage.setItem(INVENTORY_CATEGORIES_KEY, JSON.stringify(categories));
+
+    if (isSupabaseConfigured) {
+      supabase.from('inventory_categories').insert({ id, name_en: nameEn, name_ta: nameTa }).then(() => {}, () => {});
+    }
+
     return newCat;
   },
 
-  // ─── ITEMS ──────────────────────────────────────────────
+  // ─── ITEMS ───────────────────────────────────────────────
   getItems(): InventoryItem[] {
     try {
       const stored = localStorage.getItem(INVENTORY_ITEMS_KEY);
       if (!stored) {
-        // Initialize default catalogue
         const now = new Date().toISOString();
-        const initial: InventoryItem[] = INITIAL_INVENTORY_ITEMS.map((item, idx) => ({
+        const initial = INITIAL_INVENTORY_ITEMS.map((item, idx) => ({
           ...item,
-          id: `inv-${String(idx + 1).padStart(4, '0')}`,
+          id: `inv-${idx + 1}`,
           createdAt: now,
           updatedAt: now,
         }));
@@ -216,6 +295,20 @@ export const inventoryService = {
     };
     items.unshift(newItem);
     localStorage.setItem(INVENTORY_ITEMS_KEY, JSON.stringify(items));
+
+    if (isSupabaseConfigured) {
+      supabase.from('inventory_items').insert({
+        id: newItem.id,
+        name_en: newItem.nameEn,
+        name_ta: newItem.nameTa,
+        category_id: newItem.categoryId,
+        unit: newItem.unit,
+        stock_quantity: newItem.currentStock || null,
+        unit_price: newItem.unitPrice || null,
+        is_active: true,
+      }).then(() => {}, () => {});
+    }
+
     return newItem;
   },
 
@@ -228,6 +321,21 @@ export const inventoryService = {
         updatedAt: new Date().toISOString(),
       };
       localStorage.setItem(INVENTORY_ITEMS_KEY, JSON.stringify(items));
+
+      if (isSupabaseConfigured) {
+        supabase.from('inventory_items').upsert({
+          id: item.id,
+          name_en: item.nameEn,
+          name_ta: item.nameTa,
+          category_id: item.categoryId,
+          unit: item.unit,
+          stock_quantity: item.currentStock || null,
+          unit_price: item.unitPrice || null,
+          is_active: true,
+          updated_at: items[index].updatedAt,
+        }, { onConflict: 'id' }).then(() => {}, () => {});
+      }
+
       return items[index];
     }
     return item;
@@ -238,6 +346,9 @@ export const inventoryService = {
     const filtered = items.filter((i) => i.id !== id);
     if (filtered.length !== items.length) {
       localStorage.setItem(INVENTORY_ITEMS_KEY, JSON.stringify(filtered));
+      if (isSupabaseConfigured) {
+        supabase.from('inventory_items').delete().eq('id', id).then(() => {}, () => {});
+      }
       return true;
     }
     return false;
@@ -287,7 +398,6 @@ export const inventoryService = {
     const id = docData.id || `invdoc-${Date.now()}`;
     const docNumber = docData.docNumber || this.createDocumentNumber();
 
-    // Calculate total amount if prices are provided
     let totalAmount: number | undefined = undefined;
     const itemsWithTotals = docData.items.map((it) => {
       const qVal = typeof it.quantity === 'number' ? it.quantity : parseFloat(String(it.quantity)) || 0;
@@ -321,6 +431,42 @@ export const inventoryService = {
     }
 
     localStorage.setItem(INVENTORY_DOCS_KEY, JSON.stringify(docs));
+
+    // Save to Supabase
+    if (isSupabaseConfigured) {
+      supabase.from('purchase_documents').upsert({
+        id: newDoc.id,
+        title: newDoc.title,
+        event_name: newDoc.eventName,
+        customer_name: newDoc.customerName || null,
+        event_date: newDoc.eventDate || null,
+        document_date: newDoc.documentDate,
+        prepared_by: newDoc.preparedBy || null,
+        notes: newDoc.notes || null,
+        language: newDoc.language || 'both',
+        total_amount: newDoc.totalAmount || 0,
+        items: newDoc.items,
+        created_at: newDoc.createdAt,
+      }, { onConflict: 'id' }).then(async ({ error }) => {
+        if (!error && Array.isArray(newDoc.items)) {
+          const itemRows = newDoc.items.map((it) => ({
+            id: it.id || `pit-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            document_id: newDoc.id,
+            catalogue_item_id: it.catalogueItemId || null,
+            name_en: it.nameEn,
+            name_ta: it.nameTa,
+            category_name_en: it.categoryNameEn || null,
+            category_name_ta: it.categoryNameTa || null,
+            quantity: typeof it.quantity === 'number' ? it.quantity : parseFloat(String(it.quantity)) || 0,
+            unit: it.unit,
+            unit_price: it.unitPrice || null,
+            total_price: it.totalPrice || null,
+          }));
+          await supabase.from('purchase_items').upsert(itemRows, { onConflict: 'id' });
+        }
+      }, () => {});
+    }
+
     return newDoc;
   },
 
@@ -329,6 +475,9 @@ export const inventoryService = {
     const filtered = docs.filter((d) => d.id !== id);
     if (filtered.length !== docs.length) {
       localStorage.setItem(INVENTORY_DOCS_KEY, JSON.stringify(filtered));
+      if (isSupabaseConfigured) {
+        supabase.from('purchase_documents').delete().eq('id', id).then(() => {}, () => {});
+      }
       return true;
     }
     return false;
@@ -378,3 +527,10 @@ export const inventoryService = {
     URL.revokeObjectURL(url);
   },
 };
+
+// Initial background sync
+if (typeof window !== 'undefined' && isSupabaseConfigured) {
+  setTimeout(() => {
+    inventoryService.syncFromSupabase().catch(() => {});
+  }, 1800);
+}

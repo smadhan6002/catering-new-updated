@@ -17,20 +17,23 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLogin }) => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
-    setTimeout(() => {
-      const success = authService.login(username.trim(), password);
+    try {
+      const success = await authService.login(username.trim(), password);
       if (success) {
         onLogin();
       } else {
         setError('Invalid username or password.');
       }
+    } catch {
+      setError('Login failed. Please try again.');
+    } finally {
       setLoading(false);
-    }, 400);
+    }
   };
 
   return (

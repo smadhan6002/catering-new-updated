@@ -1,4 +1,5 @@
 import type { CustomerLead, DiscussionEntry, LeadStatus } from '../types/lead';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 const LEADS_STORAGE_KEY = 'catering_customer_leads';
 
@@ -14,7 +15,7 @@ const INITIAL_SAMPLE_LEADS: CustomerLead[] = [
     expectedGuestCount: 500,
     customerRequirement: 'Traditional South Indian full leaf morning breakfast and grand afternoon feast with 3 payasam varieties.',
     discussionDetails: 'Enquired about wedding package menu, tasted sweet samples, requested tentative price estimate for 500 people.',
-    followUpDate: new Date().toISOString().split('T')[0], // Today
+    followUpDate: new Date().toISOString().split('T')[0],
     followUpTime: '11:00 AM',
     status: 'Follow-up Required',
     additionalNotes: 'Hall booked near Ekambareswarar Temple, Kanchipuram.',
@@ -43,7 +44,7 @@ const INITIAL_SAMPLE_LEADS: CustomerLead[] = [
     expectedGuestCount: 150,
     customerRequirement: 'Evening tiffin counter with live dosa, mini idli, chaat, and ice cream.',
     discussionDetails: 'Customer liked Live Dosa Counter and North Indian chaat options. Discussed budget of ₹300/plate.',
-    followUpDate: new Date(Date.now() - 1 * 86400000).toISOString().split('T')[0], // Overdue by 1 day
+    followUpDate: new Date(Date.now() - 1 * 86400000).toISOString().split('T')[0],
     followUpTime: '04:00 PM',
     status: 'Interested',
     additionalNotes: 'Prefers mild spice for kids.',
@@ -72,7 +73,7 @@ const INITIAL_SAMPLE_LEADS: CustomerLead[] = [
     expectedGuestCount: 250,
     customerRequirement: 'VIP breakfast with welcome drinks, sweets, and lunch with sweets & ice cream.',
     discussionDetails: 'Customer met in office. Very keen on our catering services, awaiting hall confirmation.',
-    followUpDate: new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0], // Upcoming
+    followUpDate: new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0],
     followUpTime: '10:00 AM',
     status: 'Contacted',
     additionalNotes: 'Referred by past client in Walajabad.',
@@ -93,7 +94,134 @@ const INITIAL_SAMPLE_LEADS: CustomerLead[] = [
   },
 ];
 
+interface SupabaseLeadRow {
+  id: string;
+  lead_number: string;
+  customer_name: string;
+  mobile: string;
+  alternative_mobile?: string | null;
+  event_type?: string | null;
+  event_date?: string | null;
+  expected_guest_count?: number | null;
+  customer_requirement?: string | null;
+  discussion_details: string;
+  follow_up_date?: string | null;
+  follow_up_time?: string | null;
+  status: string;
+  additional_notes?: string | null;
+  converted_to_order_id?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+function mapRowToLead(row: SupabaseLeadRow, discussions: DiscussionEntry[] = []): CustomerLead {
+  return {
+    id: row.id,
+    leadNumber: row.lead_number,
+    customerName: row.customer_name,
+    mobile: row.mobile,
+    alternativeMobile: row.alternative_mobile || undefined,
+    eventType: row.event_type || undefined,
+    eventDate: row.event_date || undefined,
+    expectedGuestCount: row.expected_guest_count ?? undefined,
+    customerRequirement: row.customer_requirement || undefined,
+    discussionDetails: row.discussion_details || '',
+    followUpDate: row.follow_up_date || undefined,
+    followUpTime: row.follow_up_time || undefined,
+    status: (row.status as LeadStatus) || 'New',
+    additionalNotes: row.additional_notes || undefined,
+    convertedToOrderId: row.converted_to_order_id || undefined,
+    discussions,
+    createdAt: row.created_at || new Date().toISOString(),
+    updatedAt: row.updated_at || new Date().toISOString(),
+  };
+}
+
+function mapLeadToRow(lead: CustomerLead): SupabaseLeadRow {
+  return {
+    id: lead.id,
+    lead_number: lead.leadNumber,
+    customer_name: lead.customerName,
+    mobile: lead.mobile,
+    alternative_mobile: lead.alternativeMobile || null,
+    event_type: lead.eventType || null,
+    event_date: lead.eventDate || null,
+    expected_guest_count: lead.expectedGuestCount || null,
+    customer_requirement: lead.customerRequirement || null,
+    discussion_details: lead.discussionDetails || '',
+    follow_up_date: lead.followUpDate || null,
+    follow_up_time: lead.followUpTime || null,
+    status: lead.status,
+    additional_notes: lead.additionalNotes || null,
+    converted_to_order_id: lead.convertedToOrderId || null,
+    created_at: lead.createdAt,
+    updated_at: lead.updatedAt,
+  };
+}
+
 export const leadService = {
+  /**
+   * Sync leads and discussion history from Supabase
+   */
+  async syncFromSupabase(): Promise<CustomerLead[]> {
+    if (!isSupabaseConfigured) return this.getAll();
+
+    try {
+      const { data: leadRows, error: leadErr } = await supabase
+        .from('customer_leads')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (leadErr) {
+        console.warn('Failed to sync leads from Supabase:', leadErr.message);
+        return this.getAll();
+      }
+
+      if (Array.isArray(leadRows) && leadRows.length > 0) {
+        // Fetch discussion activities
+        const leadIds = leadRows.map((r) => r.id);
+        const { data: actRows } = await supabase
+          .from('lead_activities')
+          .select('*')
+          .in('lead_id', leadIds)
+          .order('created_at', { ascending: false });
+
+        const discByLeadId: Record<string, DiscussionEntry[]> = {};
+        if (Array.isArray(actRows)) {
+          actRows.forEach((act) => {
+            if (!discByLeadId[act.lead_id]) discByLeadId[act.lead_id] = [];
+            discByLeadId[act.lead_id].push({
+              id: act.id,
+              date: act.date,
+              time: act.time || '',
+              discussionDetails: act.discussion_details,
+              customerRequirement: act.customer_requirement || undefined,
+              agreedNextAction: act.agreed_next_action || undefined,
+              nextFollowUpDate: act.next_follow_up_date || undefined,
+              createdAt: act.created_at,
+            });
+          });
+        }
+
+        const local = this.getAll();
+        const localMap = new Map(local.map((l) => [l.id, l]));
+
+        const mappedLeads: CustomerLead[] = leadRows.map((row) => {
+          const discs = discByLeadId[row.id] || localMap.get(row.id)?.discussions || [];
+          return mapRowToLead(row, discs);
+        });
+
+        mappedLeads.forEach((l) => localMap.set(l.id, l));
+        const merged = Array.from(localMap.values());
+        localStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(merged));
+        return merged;
+      }
+    } catch (err) {
+      console.warn('Leads sync error:', err);
+    }
+    return this.getAll();
+  },
+
   getAll(): CustomerLead[] {
     try {
       const stored = localStorage.getItem(LEADS_STORAGE_KEY);
@@ -150,6 +278,10 @@ export const leadService = {
         };
         leads[existingIdx] = updated;
         localStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(leads));
+
+        if (isSupabaseConfigured) {
+          supabase.from('customer_leads').upsert(mapLeadToRow(updated), { onConflict: 'id' }).then(() => {}, () => {});
+        }
         return updated;
       }
     }
@@ -158,7 +290,6 @@ export const leadService = {
     const newId = `lead-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     const newLeadNumber = this.generateLeadNumber();
 
-    // Initial discussion record automatically created from the discussion details field
     const initialDiscussions: DiscussionEntry[] = [];
     if (leadData.discussionDetails && leadData.discussionDetails.trim()) {
       initialDiscussions.push({
@@ -184,6 +315,27 @@ export const leadService = {
 
     leads.unshift(newLead);
     localStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(leads));
+
+    // Persist to Supabase
+    if (isSupabaseConfigured) {
+      supabase.from('customer_leads').insert(mapLeadToRow(newLead)).then(async ({ error }) => {
+        if (!error && initialDiscussions.length > 0) {
+          const d = initialDiscussions[0];
+          await supabase.from('lead_activities').insert({
+            id: d.id,
+            lead_id: newLead.id,
+            date: d.date,
+            time: d.time,
+            discussion_details: d.discussionDetails,
+            customer_requirement: d.customerRequirement || null,
+            agreed_next_action: d.agreedNextAction || null,
+            next_follow_up_date: d.nextFollowUpDate || null,
+            created_at: d.createdAt,
+          });
+        }
+      }, () => {});
+    }
+
     return newLead;
   },
 
@@ -205,7 +357,6 @@ export const leadService = {
       createdAt: now,
     };
 
-    // Prepend new discussion so newest is first
     const updatedDiscussions = [newDiscEntry, ...(lead.discussions || [])];
 
     const updatedLead: CustomerLead = {
@@ -220,6 +371,30 @@ export const leadService = {
 
     leads[idx] = updatedLead;
     localStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(leads));
+
+    // Persist to Supabase
+    if (isSupabaseConfigured) {
+      supabase.from('lead_activities').insert({
+        id: newDiscEntry.id,
+        lead_id: leadId,
+        date: newDiscEntry.date,
+        time: newDiscEntry.time,
+        discussion_details: newDiscEntry.discussionDetails,
+        customer_requirement: newDiscEntry.customerRequirement || null,
+        agreed_next_action: newDiscEntry.agreedNextAction || null,
+        next_follow_up_date: newDiscEntry.nextFollowUpDate || null,
+        created_at: newDiscEntry.createdAt,
+      }).then(() => {}, () => {});
+
+      supabase.from('customer_leads').update({
+        discussion_details: updatedLead.discussionDetails,
+        customer_requirement: updatedLead.customerRequirement || null,
+        follow_up_date: updatedLead.followUpDate || null,
+        status: updatedLead.status,
+        updated_at: updatedLead.updatedAt,
+      }).eq('id', leadId).then(() => {}, () => {});
+    }
+
     return updatedLead;
   },
 
@@ -244,6 +419,16 @@ export const leadService = {
 
     leads[idx] = updatedLead;
     localStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(leads));
+
+    if (isSupabaseConfigured) {
+      supabase.from('customer_leads').update({
+        follow_up_date: followUpDate,
+        follow_up_time: followUpTime || null,
+        status: updatedLead.status,
+        updated_at: updatedLead.updatedAt,
+      }).eq('id', leadId).then(() => {}, () => {});
+    }
+
     return updatedLead;
   },
 
@@ -275,6 +460,26 @@ export const leadService = {
 
     leads[idx] = updatedLead;
     localStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(leads));
+
+    if (isSupabaseConfigured) {
+      supabase.from('customer_leads').update({
+        status: updatedLead.status,
+        follow_up_date: null,
+        follow_up_time: null,
+        updated_at: updatedLead.updatedAt,
+      }).eq('id', leadId).then(() => {}, () => {});
+
+      supabase.from('lead_activities').insert({
+        id: completionEntry.id,
+        lead_id: leadId,
+        date: completionEntry.date,
+        time: completionEntry.time,
+        discussion_details: completionEntry.discussionDetails,
+        agreed_next_action: completionEntry.agreedNextAction || null,
+        created_at: completionEntry.createdAt,
+      }).then(() => {}, () => {});
+    }
+
     return updatedLead;
   },
 
@@ -283,14 +488,14 @@ export const leadService = {
     const filtered = leads.filter((l) => l.id !== id);
     if (filtered.length !== leads.length) {
       localStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(filtered));
+      if (isSupabaseConfigured) {
+        supabase.from('customer_leads').delete().eq('id', id).then(() => {}, () => {});
+      }
       return true;
     }
     return false;
   },
 
-  /**
-   * Categorizes follow-ups: today, upcoming, overdue, completed
-   */
   getFollowUps(leadList?: CustomerLead[]): {
     today: CustomerLead[];
     upcoming: CustomerLead[];
@@ -320,13 +525,17 @@ export const leadService = {
       }
     });
 
-    // Sort overdue earliest first (most overdue first)
     overdue.sort((a, b) => (a.followUpDate || '').localeCompare(b.followUpDate || ''));
-    // Sort today by time
     today.sort((a, b) => (a.followUpTime || '').localeCompare(b.followUpTime || ''));
-    // Sort upcoming soonest first
     upcoming.sort((a, b) => (a.followUpDate || '').localeCompare(b.followUpDate || ''));
 
     return { today, upcoming, overdue, completed };
   },
 };
+
+// Initial background sync
+if (typeof window !== 'undefined' && isSupabaseConfigured) {
+  setTimeout(() => {
+    leadService.syncFromSupabase().catch(() => {});
+  }, 1600);
+}
