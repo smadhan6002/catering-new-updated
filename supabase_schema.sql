@@ -324,13 +324,38 @@ END $$;
 -- ==============================================================================
 -- 9. STORAGE BUCKETS CONFIGURATION (DISHES, CATEGORIES, DOCUMENTS)
 -- ==============================================================================
-INSERT INTO storage.buckets (id, name, public)
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES 
-  ('dish-images', 'dish-images', true),
-  ('category-images', 'category-images', true),
-  ('documents', 'documents', true)
-ON CONFLICT (id) DO NOTHING;
+  ('dish-images', 'dish-images', true, 52428800, NULL),
+  ('category-images', 'category-images', true, 52428800, NULL),
+  ('documents', 'documents', true, 52428800, NULL)
+ON CONFLICT (id) DO UPDATE SET public = true;
 
--- Storage policies allowing public upload and download
+ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Public Select Objects" ON storage.objects;
+DROP POLICY IF EXISTS "Public Insert Objects" ON storage.objects;
+DROP POLICY IF EXISTS "Public Update Objects" ON storage.objects;
+DROP POLICY IF EXISTS "Public Delete Objects" ON storage.objects;
 DROP POLICY IF EXISTS "Public Storage Access" ON storage.objects;
-CREATE POLICY "Public Storage Access" ON storage.objects FOR ALL USING (true) WITH CHECK (true);
+
+CREATE POLICY "Public Select Objects"
+ON storage.objects FOR SELECT
+TO public
+USING (bucket_id IN ('dish-images', 'category-images', 'documents'));
+
+CREATE POLICY "Public Insert Objects"
+ON storage.objects FOR INSERT
+TO public
+WITH CHECK (bucket_id IN ('dish-images', 'category-images', 'documents'));
+
+CREATE POLICY "Public Update Objects"
+ON storage.objects FOR UPDATE
+TO public
+USING (bucket_id IN ('dish-images', 'category-images', 'documents'))
+WITH CHECK (bucket_id IN ('dish-images', 'category-images', 'documents'));
+
+CREATE POLICY "Public Delete Objects"
+ON storage.objects FOR DELETE
+TO public
+USING (bucket_id IN ('dish-images', 'category-images', 'documents'));
