@@ -43,6 +43,23 @@ export const CATEGORY_UUID_MAP: Record<string, string> = {
   'special-counters': 'c0000000-0000-0000-0000-000000000014',
 };
 
+export const DEFAULT_CATEGORIES_TO_SEED = [
+  { id: 'c0000000-0000-0000-0000-000000000001', name: 'Starters', tamil_name: 'தொடக்க உணவுகள்', is_active: true },
+  { id: 'c0000000-0000-0000-0000-000000000002', name: 'Bonda & Bajji', tamil_name: 'போண்டா & பஜ்ஜி', is_active: true },
+  { id: 'c0000000-0000-0000-0000-000000000003', name: 'Beverages', tamil_name: 'பானங்கள்', is_active: true },
+  { id: 'c0000000-0000-0000-0000-000000000004', name: 'Variety Rice', tamil_name: 'கலவை சாதம்', is_active: true },
+  { id: 'c0000000-0000-0000-0000-000000000005', name: 'Meals & Sides', tamil_name: 'சாப்பாடு & கூட்டுகள்', is_active: true },
+  { id: 'c0000000-0000-0000-0000-000000000006', name: 'Vada Varieties', tamil_name: 'வடை வகைகள்', is_active: true },
+  { id: 'c0000000-0000-0000-0000-000000000007', name: 'Payasam Varieties', tamil_name: 'பாயாசம் வகைகள்', is_active: true },
+  { id: 'c0000000-0000-0000-0000-000000000008', name: 'Indian Breads', tamil_name: 'ரொட்டி வகைகள்', is_active: true },
+  { id: 'c0000000-0000-0000-0000-000000000009', name: 'Gravy Varieties', tamil_name: 'குருமா & கிரேவி வகைகள்', is_active: true },
+  { id: 'c0000000-0000-0000-0000-000000000010', name: 'Halwa & Sweets', tamil_name: 'அல்வா & இனிப்புகள்', is_active: true },
+  { id: 'c0000000-0000-0000-0000-000000000011', name: 'Traditional Sweets', tamil_name: 'பாரம்பரிய இனிப்புகள்', is_active: true },
+  { id: 'c0000000-0000-0000-0000-000000000012', name: 'Tiffin Varieties', tamil_name: 'சிற்றுண்டி வகைகள்', is_active: true },
+  { id: 'c0000000-0000-0000-0000-000000000013', name: 'Accompaniments', tamil_name: 'தொட்டுக்கைகள்', is_active: true },
+  { id: 'c0000000-0000-0000-0000-000000000014', name: 'Special Counters', tamil_name: 'சிறப்பு கவுண்டர்கள்', is_active: true },
+];
+
 const UUID_TO_CATEGORY_MAP: Record<string, string> = Object.entries(CATEGORY_UUID_MAP).reduce(
   (acc, [slug, uuid]) => {
     acc[uuid] = slug;
@@ -100,10 +117,13 @@ export const dishService = {
     if (!isSupabaseConfigured) return;
 
     try {
-      // 1. Fetch categories
-      const { error: catErr } = await supabase.from('categories').select('*');
+      // 1. Fetch categories (and auto-seed if empty in Supabase)
+      const { data: catData, error: catErr } = await supabase.from('categories').select('*');
       if (catErr) {
         console.warn('Failed to fetch categories:', catErr.message);
+      } else if (!catData || catData.length === 0) {
+        console.log('Seeding default categories to Supabase...');
+        await supabase.from('categories').upsert(DEFAULT_CATEGORIES_TO_SEED, { onConflict: 'id' });
       }
 
       // 2. Fetch dishes from Supabase
@@ -319,6 +339,20 @@ export const dishService = {
 
     // Persist to Supabase dishes table
     if (isSupabaseConfigured) {
+      // Ensure category exists to prevent dishes_category_id_fkey foreign key errors
+      const { data: catExists } = await supabase
+        .from('categories')
+        .select('id')
+        .eq('id', categoryUuid)
+        .maybeSingle();
+
+      if (!catExists) {
+        const seedCat = DEFAULT_CATEGORIES_TO_SEED.find((c) => c.id === categoryUuid);
+        if (seedCat) {
+          await supabase.from('categories').upsert(seedCat, { onConflict: 'id' });
+        }
+      }
+
       const { error } = await supabase.from('dishes').insert({
         id: dishUuid,
         name: data.name,
@@ -391,7 +425,19 @@ export const dishService = {
           is_available: changes.isActive,
         };
         if (changes.categoryId) {
-          updatePayload.category_id = resolveCategoryUUID(changes.categoryId);
+          const catUuid = resolveCategoryUUID(changes.categoryId);
+          updatePayload.category_id = catUuid;
+          const { data: catExists } = await supabase
+            .from('categories')
+            .select('id')
+            .eq('id', catUuid)
+            .maybeSingle();
+          if (!catExists) {
+            const seedCat = DEFAULT_CATEGORIES_TO_SEED.find((c) => c.id === catUuid);
+            if (seedCat) {
+              await supabase.from('categories').upsert(seedCat, { onConflict: 'id' });
+            }
+          }
         }
 
         const { error } = await supabase
