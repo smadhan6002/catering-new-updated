@@ -39,14 +39,16 @@ export type MeasurementUnit =
   | 'Plates';
 
 export interface OrderPayment {
-  id: string;           // e.g. pay-001 or unique ID
+  id: string;           // e.g. pay-001 or unique ID or UUID
+  orderId?: string;     // associated order_id
   amount: number;
   date: string;         // ISO date yyyy-mm-dd
   method: PaymentMethod | string;
   note?: string;
+  createdAt?: string;
 }
 
-export type PaymentStatus = 'Unpaid' | 'Partially Paid' | 'Paid' | 'Advance Paid' | 'Fully Paid';
+export type PaymentStatus = 'Unpaid' | 'Partial' | 'Partially Paid' | 'Paid' | 'Advance Paid' | 'Fully Paid';
 
 export interface OrderItem {
   dishId: string;
@@ -125,6 +127,7 @@ export interface Order {
   advanceAmount?: number;   // Maintained for backward compatibility
   balancePaid?: number;     // Maintained for backward compatibility
   payments?: OrderPayment[]; // Multiple split payments / installment history
+  paymentStatus?: PaymentStatus;
   status: OrderStatus;
   kitchenSheetStatus?: KitchenPrepStatus;
   notes: string;            // Special instructions

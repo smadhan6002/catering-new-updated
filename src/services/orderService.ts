@@ -2,7 +2,7 @@
  * orderService — Order persistence with Supabase production backend & local storage fallback.
  * Keeps orders, items, food quantities, and split payment history synchronized permanently.
  */
-import type { Order, OrderPayment, OrderStatus } from '../types/admin';
+import type { Order, OrderPayment, OrderStatus, PaymentStatus } from '../types/admin';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 const ORDERS_KEY = 'annapoorna_orders';
@@ -78,13 +78,13 @@ export function getOrderBalanceDue(order: Order): number {
   return Math.max(0, total - totalPaid);
 }
 
-export function getOrderPaymentStatus(order: Order): 'Unpaid' | 'Partially Paid' | 'Paid' {
+export function getOrderPaymentStatus(order: Order): PaymentStatus {
   const total = Number(order.totalAmount) || 0;
   const totalPaid = getOrderTotalPaid(order);
 
   if (totalPaid <= 0) return 'Unpaid';
   if (totalPaid >= total && total > 0) return 'Paid';
-  return 'Partially Paid';
+  return 'Partial';
 }
 
 interface SupabaseOrderRow {
@@ -201,6 +201,7 @@ function mapRowToOrder(row: SupabaseOrderRow): Order {
     advanceAmount: Number(row.advance_amount) || 0,
     balancePaid: Number(row.balance_paid ?? row.balance_amount) || 0,
     payments,
+    paymentStatus: (row.payment_status || 'Unpaid') as PaymentStatus,
     status: (row.status || row.order_status || 'Pending') as OrderStatus,
     kitchenSheetStatus: (row.kitchen_sheet_status as Order['kitchenSheetStatus']) || 'Not Prepared',
     notes,
@@ -275,9 +276,12 @@ export const orderService = {
 
       if (Array.isArray(orderRows)) {
         const itemsByOrderId: Record<string, Order['items']> = {};
+        const paymentsByOrderId: Record<string, OrderPayment[]> = {};
 
         if (orderRows.length > 0) {
           const orderIds = orderRows.map((r) => r.id);
+
+          // Fetch items
           const { data: itemRows } = await supabase
             .from('order_items')
             .select('*')
@@ -296,6 +300,31 @@ export const orderService = {
               });
             });
           }
+
+          // Fetch payments from public.payments
+          try {
+            const { data: payRows } = await supabase
+              .from('payments')
+              .select('*')
+              .in('order_id', orderIds)
+              .order('payment_date', { ascending: true });
+
+            if (Array.isArray(payRows)) {
+              payRows.forEach((p) => {
+                if (!paymentsByOrderId[p.order_id]) paymentsByOrderId[p.order_id] = [];
+                paymentsByOrderId[p.order_id].push({
+                  id: p.id,
+                  orderId: p.order_id,
+                  amount: Number(p.amount) || 0,
+                  date: (p.payment_date || '').split('T')[0] || p.payment_date,
+                  method: p.payment_method || 'UPI',
+                  note: p.notes || undefined,
+                });
+              });
+            }
+          } catch (payErr) {
+            console.warn('[orderService] Failed to load payments in sync:', payErr);
+          }
         }
 
         const localOrders = this.getAll();
@@ -306,6 +335,18 @@ export const orderService = {
           const dbItems = itemsByOrderId[ord.id] || (ord.orderNumber ? itemsByOrderId[ord.orderNumber] : null);
           const localMatch = localMap.get(ord.orderNumber || ord.id);
           ord.items = (dbItems && dbItems.length > 0) ? dbItems : (localMatch?.items || []);
+
+          // Map payments directly from Supabase public.payments
+          const dbPayments = paymentsByOrderId[ord.id] || (ord.orderNumber ? paymentsByOrderId[ord.orderNumber] : null);
+          const payments = (dbPayments && dbPayments.length > 0) ? dbPayments : (localMatch?.payments || []);
+          ord.payments = payments;
+
+          const totalPaid = payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+          const totalAmt = Number(ord.totalAmount) || 0;
+          ord.advanceAmount = totalPaid;
+          ord.balancePaid = Math.max(0, totalAmt - totalPaid);
+          ord.paymentStatus = totalPaid <= 0 ? 'Unpaid' : (totalPaid >= totalAmt && totalAmt > 0) ? 'Paid' : 'Partial';
+
           return ord;
         });
 
@@ -474,6 +515,11 @@ export const orderService = {
     if (isSupabaseConfigured) {
       const order = orders[idx];
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+      const totalPaid = updatedPayments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+      const total = Number(order.totalAmount) || 0;
+      const balanceDue = Math.max(0, total - totalPaid);
+      const paymentStatus: PaymentStatus =
+        totalPaid <= 0 ? 'Unpaid' : (totalPaid >= total && total > 0) ? 'Paid' : 'Partial';
 
       const updateData: Record<string, any> = {
         customer_name: order.customerName,
@@ -481,11 +527,10 @@ export const orderService = {
         delivery_date: order.orderDate,
         guest_count: order.guestCount,
         order_status: order.status,
-        status: order.status,
         total_amount: order.totalAmount,
-        advance_amount: order.advanceAmount,
-        balance_amount: order.balancePaid,
-        balance_paid: order.balancePaid,
+        advance_amount: totalPaid,
+        balance_amount: balanceDue,
+        payment_status: paymentStatus,
         notes: order.notes,
       };
 
@@ -506,94 +551,452 @@ export const orderService = {
     return this.update(id, { status });
   },
 
-  updatePayment(
-    id: string,
-    totalAmount: number,
-    advanceAmount: number,
-    balancePaid: number
-  ): Promise<Order | undefined> {
-    return this.update(id, { totalAmount, advanceAmount, balancePaid });
+  async resolveOrderUuid(orderId: string): Promise<string> {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orderId);
+    if (isUuid) return orderId;
+
+    const local = this.getById(orderId);
+    if (local && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(local.id)) {
+      return local.id;
+    }
+
+    if (isSupabaseConfigured) {
+      const { data } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('order_number', orderId)
+        .maybeSingle();
+
+      if (data?.id) return data.id;
+    }
+
+    return orderId;
   },
 
+  /**
+   * Fetches all payments for a specific order from Supabase public.payments
+   */
+  async getPaymentsForOrder(orderId: string): Promise<OrderPayment[]> {
+    if (!isSupabaseConfigured) {
+      const order = this.getById(orderId);
+      return order ? normalizeOrderPayments(order) : [];
+    }
+
+    try {
+      const orderUuid = await this.resolveOrderUuid(orderId);
+      const { data: rows, error } = await supabase
+        .from('payments')
+        .select('*')
+        .eq('order_id', orderUuid)
+        .order('payment_date', { ascending: true });
+
+      if (error) {
+        console.warn('[orderService] getPaymentsForOrder warning:', error.message);
+        const order = this.getById(orderId);
+        return order ? normalizeOrderPayments(order) : [];
+      }
+
+      if (Array.isArray(rows)) {
+        const payments: OrderPayment[] = rows.map((p) => ({
+          id: p.id,
+          orderId: p.order_id,
+          amount: Number(p.amount) || 0,
+          date: (p.payment_date || '').split('T')[0] || p.payment_date,
+          method: p.payment_method || 'UPI',
+          note: p.notes || undefined,
+        }));
+
+        // Keep local cache synchronized
+        const all = this.getAll();
+        const idx = all.findIndex((o) => o.id === orderId || o.orderNumber === orderId || o.id === orderUuid);
+        if (idx !== -1) {
+          all[idx].payments = payments;
+          const totalPaid = payments.reduce((s, p) => s + p.amount, 0);
+          const total = Number(all[idx].totalAmount) || 0;
+          all[idx].advanceAmount = totalPaid;
+          all[idx].balancePaid = Math.max(0, total - totalPaid);
+          all[idx].paymentStatus = totalPaid <= 0 ? 'Unpaid' : (totalPaid >= total && total > 0) ? 'Paid' : 'Partial';
+          localStorage.setItem(ORDERS_KEY, JSON.stringify(all));
+        }
+
+        return payments;
+      }
+    } catch (err) {
+      console.warn('[orderService] getPaymentsForOrder exception:', err);
+    }
+
+    const order = this.getById(orderId);
+    return order ? normalizeOrderPayments(order) : [];
+  },
+
+  /**
+   * Adds a payment into public.payments, recalculates totals, and updates public.orders
+   */
   async addPayment(
     orderId: string,
-    payment: Omit<OrderPayment, 'id'>
-  ): Promise<Order | undefined> {
-    const order = this.getById(orderId);
-    if (!order) return undefined;
-    const currentPayments = normalizeOrderPayments(order);
-    const newPayment: OrderPayment = {
-      ...payment,
-      id: `pay-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      amount: Number(payment.amount) || 0,
-    };
-    const updatedPayments = [...currentPayments, newPayment];
-
-    if (isSupabaseConfigured) {
-      supabase
-        .from('order_payments')
-        .insert({
-          id: newPayment.id,
-          order_id: orderId,
-          amount: newPayment.amount,
-          date: newPayment.date,
-          method: newPayment.method,
-          note: newPayment.note || null,
-        })
-        .then(() => {}, () => {});
+    payment: Omit<OrderPayment, 'id'>,
+    currentTotalAmount?: number
+  ): Promise<{ order: Order; payments: OrderPayment[]; payment: OrderPayment }> {
+    const amt = Number(payment.amount);
+    if (isNaN(amt) || amt <= 0) {
+      throw new Error('Payment amount must be greater than ₹0.');
+    }
+    if (!payment.date) {
+      throw new Error('Payment date is required.');
+    }
+    if (!payment.method) {
+      throw new Error('Payment method is required.');
     }
 
-    return this.update(orderId, { payments: updatedPayments });
+    const orderUuid = await this.resolveOrderUuid(orderId);
+    let newPaymentId: string | undefined;
+    let rpcDone = false;
+
+    if (isSupabaseConfigured) {
+      // 1. Attempt PostgreSQL atomic RPC function
+      try {
+        const { data: rpcRes, error: rpcErr } = await supabase.rpc('record_order_payment', {
+          p_order_id: orderUuid,
+          p_amount: amt,
+          p_payment_method: payment.method,
+          p_payment_date: `${payment.date}T00:00:00.000Z`,
+          p_notes: payment.note?.trim() || null,
+        });
+
+        if (!rpcErr && rpcRes && rpcRes.payment_id) {
+          newPaymentId = rpcRes.payment_id;
+          rpcDone = true;
+        }
+      } catch {
+        rpcDone = false;
+      }
+
+      // 2. Direct transactional insert if RPC is not present
+      if (!rpcDone) {
+        const { data: insRows, error: insErr } = await supabase
+          .from('payments')
+          .insert({
+            order_id: orderUuid,
+            amount: amt,
+            payment_method: payment.method,
+            payment_date: `${payment.date}T00:00:00.000Z`,
+            notes: payment.note?.trim() || null,
+          })
+          .select();
+
+        if (insErr) {
+          console.error('[orderService] Failed to insert payment into public.payments:', insErr);
+          throw new Error(`Failed to save payment to Supabase (${insErr.code || 'DB_ERROR'}): ${insErr.message}`);
+        }
+
+        if (!insRows || insRows.length === 0) {
+          throw new Error('Supabase did not return the inserted payment record.');
+        }
+
+        newPaymentId = insRows[0].id;
+      }
+    }
+
+    // 3. Fetch all confirmed payments from Supabase
+    const freshPayments = await this.getPaymentsForOrder(orderUuid);
+    const totalPaid = freshPayments.reduce((s, p) => s + p.amount, 0);
+
+    const order = this.getById(orderId) || this.getById(orderUuid);
+    const totalAmt = currentTotalAmount !== undefined
+      ? currentTotalAmount
+      : (order ? Number(order.totalAmount) : 0);
+    const balanceDue = Math.max(0, totalAmt - totalPaid);
+    const paymentStatus: PaymentStatus =
+      totalPaid <= 0 ? 'Unpaid' : (totalPaid >= totalAmt && totalAmt > 0) ? 'Paid' : 'Partial';
+
+    // 4. Update order totals in public.orders
+    if (isSupabaseConfigured) {
+      await supabase
+        .from('orders')
+        .update({
+          total_amount: totalAmt,
+          advance_amount: totalPaid,
+          balance_amount: balanceDue,
+          payment_status: paymentStatus,
+        })
+        .eq('id', orderUuid);
+    }
+
+    // 5. Update local cache
+    const all = this.getAll();
+    const idx = all.findIndex((o) => o.id === orderId || o.orderNumber === orderId || o.id === orderUuid);
+    let updatedOrder: Order;
+    if (idx !== -1) {
+      all[idx] = {
+        ...all[idx],
+        totalAmount: totalAmt,
+        advanceAmount: totalPaid,
+        balancePaid: balanceDue,
+        payments: freshPayments,
+        paymentStatus,
+      };
+      updatedOrder = all[idx];
+      localStorage.setItem(ORDERS_KEY, JSON.stringify(all));
+    } else {
+      updatedOrder = {
+        ...order!,
+        totalAmount: totalAmt,
+        advanceAmount: totalPaid,
+        balancePaid: balanceDue,
+        payments: freshPayments,
+        paymentStatus,
+      };
+    }
+
+    const createdPayment = freshPayments.find((p) => p.id === newPaymentId) || {
+      id: newPaymentId || `pay-${Date.now()}`,
+      orderId: orderUuid,
+      amount: amt,
+      date: payment.date,
+      method: payment.method,
+      note: payment.note,
+    };
+
+    return { order: updatedOrder, payments: freshPayments, payment: createdPayment };
   },
 
-  async updatePaymentEntry(
+  /**
+   * Updates an existing payment in public.payments and recalculates order totals
+   */
+  async updatePayment(
     orderId: string,
     paymentId: string,
-    changes: Partial<OrderPayment>
-  ): Promise<Order | undefined> {
-    const order = this.getById(orderId);
-    if (!order) return undefined;
-    const currentPayments = normalizeOrderPayments(order);
-    const updatedPayments = currentPayments.map((p) => {
-      if (p.id === paymentId) {
-        const updated = {
-          ...p,
-          ...changes,
-          amount: changes.amount !== undefined ? Number(changes.amount) : p.amount,
-        };
-        if (isSupabaseConfigured) {
-          supabase
-            .from('order_payments')
-            .update({
-              amount: updated.amount,
-              date: updated.date,
-              method: updated.method,
-              note: updated.note || null,
-            })
-            .eq('id', paymentId)
-            .then(() => {}, () => {});
-        }
-        return updated;
-      }
-      return p;
-    });
-    return this.update(orderId, { payments: updatedPayments });
-  },
-
-  async deletePaymentEntry(
-    orderId: string,
-    paymentId: string
-  ): Promise<Order | undefined> {
-    const order = this.getById(orderId);
-    if (!order) return undefined;
-    const currentPayments = normalizeOrderPayments(order);
-    const updatedPayments = currentPayments.filter((p) => p.id !== paymentId);
+    changes: Partial<OrderPayment>,
+    currentTotalAmount?: number
+  ): Promise<{ order: Order; payments: OrderPayment[] }> {
+    const orderUuid = await this.resolveOrderUuid(orderId);
 
     if (isSupabaseConfigured) {
-      supabase.from('order_payments').delete().eq('id', paymentId).then(() => {}, () => {});
+      const updateData: Record<string, any> = {};
+      if (changes.amount !== undefined) {
+        const amt = Number(changes.amount);
+        if (isNaN(amt) || amt <= 0) throw new Error('Payment amount must be greater than ₹0.');
+        updateData.amount = amt;
+      }
+      if (changes.method !== undefined) updateData.payment_method = changes.method;
+      if (changes.date !== undefined) updateData.payment_date = `${changes.date}T00:00:00.000Z`;
+      if (changes.note !== undefined) updateData.notes = changes.note?.trim() || null;
+
+      const { error: updErr } = await supabase
+        .from('payments')
+        .update(updateData)
+        .eq('id', paymentId);
+
+      if (updErr) {
+        throw new Error(`Failed to update payment in Supabase: ${updErr.message}`);
+      }
     }
 
-    return this.update(orderId, { payments: updatedPayments });
+    const freshPayments = await this.getPaymentsForOrder(orderUuid);
+    const totalPaid = freshPayments.reduce((s, p) => s + p.amount, 0);
+
+    const order = this.getById(orderId) || this.getById(orderUuid);
+    const totalAmt = currentTotalAmount !== undefined
+      ? currentTotalAmount
+      : (order ? Number(order.totalAmount) : 0);
+    const balanceDue = Math.max(0, totalAmt - totalPaid);
+    const paymentStatus: PaymentStatus =
+      totalPaid <= 0 ? 'Unpaid' : (totalPaid >= totalAmt && totalAmt > 0) ? 'Paid' : 'Partial';
+
+    if (isSupabaseConfigured) {
+      await supabase
+        .from('orders')
+        .update({
+          total_amount: totalAmt,
+          advance_amount: totalPaid,
+          balance_amount: balanceDue,
+          payment_status: paymentStatus,
+        })
+        .eq('id', orderUuid);
+    }
+
+    const all = this.getAll();
+    const idx = all.findIndex((o) => o.id === orderId || o.orderNumber === orderId || o.id === orderUuid);
+    let updatedOrder: Order;
+    if (idx !== -1) {
+      all[idx] = {
+        ...all[idx],
+        totalAmount: totalAmt,
+        advanceAmount: totalPaid,
+        balancePaid: balanceDue,
+        payments: freshPayments,
+        paymentStatus,
+      };
+      updatedOrder = all[idx];
+      localStorage.setItem(ORDERS_KEY, JSON.stringify(all));
+    } else {
+      updatedOrder = order!;
+    }
+
+    return { order: updatedOrder, payments: freshPayments };
+  },
+
+  /**
+   * Deletes a payment record from public.payments and updates order totals
+   */
+  async deletePayment(
+    orderId: string,
+    paymentId: string,
+    currentTotalAmount?: number
+  ): Promise<{ order: Order; payments: OrderPayment[] }> {
+    const orderUuid = await this.resolveOrderUuid(orderId);
+
+    if (isSupabaseConfigured) {
+      const { error: delErr } = await supabase
+        .from('payments')
+        .delete()
+        .eq('id', paymentId);
+
+      if (delErr) {
+        throw new Error(`Failed to delete payment from Supabase: ${delErr.message}`);
+      }
+    }
+
+    const freshPayments = await this.getPaymentsForOrder(orderUuid);
+    const totalPaid = freshPayments.reduce((s, p) => s + p.amount, 0);
+
+    const order = this.getById(orderId) || this.getById(orderUuid);
+    const totalAmt = currentTotalAmount !== undefined
+      ? currentTotalAmount
+      : (order ? Number(order.totalAmount) : 0);
+    const balanceDue = Math.max(0, totalAmt - totalPaid);
+    const paymentStatus: PaymentStatus =
+      totalPaid <= 0 ? 'Unpaid' : (totalPaid >= totalAmt && totalAmt > 0) ? 'Paid' : 'Partial';
+
+    if (isSupabaseConfigured) {
+      await supabase
+        .from('orders')
+        .update({
+          total_amount: totalAmt,
+          advance_amount: totalPaid,
+          balance_amount: balanceDue,
+          payment_status: paymentStatus,
+        })
+        .eq('id', orderUuid);
+    }
+
+    const all = this.getAll();
+    const idx = all.findIndex((o) => o.id === orderId || o.orderNumber === orderId || o.id === orderUuid);
+    let updatedOrder: Order;
+    if (idx !== -1) {
+      all[idx] = {
+        ...all[idx],
+        totalAmount: totalAmt,
+        advanceAmount: totalPaid,
+        balancePaid: balanceDue,
+        payments: freshPayments,
+        paymentStatus,
+      };
+      updatedOrder = all[idx];
+      localStorage.setItem(ORDERS_KEY, JSON.stringify(all));
+    } else {
+      updatedOrder = order!;
+    }
+
+    return { order: updatedOrder, payments: freshPayments };
+  },
+
+  /**
+   * Updates Total Amount and order details in Supabase, recalculating balance & payment_status
+   * while strictly preserving all existing payment history records
+   */
+  async updateOrderTotalAndDetails(
+    orderId: string,
+    data: {
+      totalAmount: number;
+      status?: OrderStatus;
+      notes?: string;
+      adminNotes?: string;
+    }
+  ): Promise<Order> {
+    const totalAmt = Number(data.totalAmount);
+    if (isNaN(totalAmt) || totalAmt < 0) {
+      throw new Error('Total amount must be a positive number.');
+    }
+
+    const orderUuid = await this.resolveOrderUuid(orderId);
+
+    // Fetch existing payment history to recalculate balance & status correctly without touching payments table
+    const freshPayments = await this.getPaymentsForOrder(orderUuid);
+    const totalPaid = freshPayments.reduce((s, p) => s + p.amount, 0);
+    const balanceDue = Math.max(0, totalAmt - totalPaid);
+    const paymentStatus: PaymentStatus =
+      totalPaid <= 0 ? 'Unpaid' : (totalPaid >= totalAmt && totalAmt > 0) ? 'Paid' : 'Partial';
+
+    const order = this.getById(orderId) || this.getById(orderUuid);
+    const combinedNotes = `[Address: ${order?.eventAddress || 'Not specified'}] [Event: ${order?.eventType || 'Catering'}] [Source: ${order?.orderSource || 'Website'}] ${data.notes || ''}`.trim();
+
+    if (isSupabaseConfigured) {
+      const updatePayload: Record<string, any> = {
+        total_amount: totalAmt,
+        advance_amount: totalPaid,
+        balance_amount: balanceDue,
+        payment_status: paymentStatus,
+      };
+      if (data.status) {
+        updatePayload.order_status = data.status;
+      }
+      if (data.notes !== undefined) {
+        updatePayload.notes = combinedNotes;
+      }
+
+      const { error: updErr } = await supabase
+        .from('orders')
+        .update(updatePayload)
+        .eq('id', orderUuid);
+
+      if (updErr) {
+        throw new Error(`Failed to update order in Supabase: ${updErr.message}`);
+      }
+    }
+
+    // Update in local cache
+    const all = this.getAll();
+    const idx = all.findIndex((o) => o.id === orderId || o.orderNumber === orderId || o.id === orderUuid);
+    let updatedOrder: Order;
+    if (idx !== -1) {
+      all[idx] = {
+        ...all[idx],
+        totalAmount: totalAmt,
+        advanceAmount: totalPaid,
+        balancePaid: balanceDue,
+        paymentStatus,
+        payments: freshPayments,
+        status: data.status ?? all[idx].status,
+        notes: data.notes ?? all[idx].notes,
+        adminNotes: data.adminNotes ?? all[idx].adminNotes,
+      };
+      updatedOrder = all[idx];
+      localStorage.setItem(ORDERS_KEY, JSON.stringify(all));
+    } else {
+      updatedOrder = {
+        id: orderUuid,
+        orderNumber: order?.orderNumber || orderId,
+        customerName: order?.customerName || 'Customer',
+        mobile: order?.mobile || '',
+        eventAddress: order?.eventAddress || '',
+        orderDate: order?.orderDate || new Date().toISOString().split('T')[0],
+        totalAmount: totalAmt,
+        advanceAmount: totalPaid,
+        balancePaid: balanceDue,
+        payments: freshPayments,
+        paymentStatus,
+        status: data.status || order?.status || 'Pending',
+        items: order?.items || [],
+        notes: data.notes ?? order?.notes ?? '',
+        adminNotes: data.adminNotes ?? order?.adminNotes,
+        guestCount: order?.guestCount || null,
+        invoiceGenerated: false,
+        createdAt: order?.createdAt || new Date().toISOString(),
+      };
+    }
+
+    return updatedOrder;
   },
 
   markInvoiceGenerated(id: string): Promise<Order | undefined> {
@@ -607,11 +1010,13 @@ export const orderService = {
     if (isSupabaseConfigured) {
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
       if (isUuid) {
+        await supabase.from('payments').delete().eq('order_id', id);
         await supabase.from('order_items').delete().eq('order_id', id);
         await supabase.from('orders').delete().eq('id', id);
       } else {
         const { data } = await supabase.from('orders').select('id').eq('order_number', id).maybeSingle();
         if (data && data.id) {
+          await supabase.from('payments').delete().eq('order_id', data.id);
           await supabase.from('order_items').delete().eq('order_id', data.id);
           await supabase.from('orders').delete().eq('id', data.id);
         } else {

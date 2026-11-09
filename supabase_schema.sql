@@ -34,6 +34,103 @@ ALTER TABLE public.order_items
   ADD COLUMN IF NOT EXISTS notes TEXT,
   ADD COLUMN IF NOT EXISTS price NUMERIC(10, 2) DEFAULT 0;
 
+-- Ensure public.payments table exists with correct schema and indices
+CREATE TABLE IF NOT EXISTS public.payments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id UUID NOT NULL REFERENCES public.orders(id) ON DELETE CASCADE,
+  amount NUMERIC(12, 2) NOT NULL CHECK (amount > 0),
+  payment_method VARCHAR(50) NOT NULL DEFAULT 'UPI',
+  payment_date TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.payments ADD COLUMN IF NOT EXISTS notes TEXT;
+ALTER TABLE public.payments ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+
+CREATE INDEX IF NOT EXISTS idx_payments_order_id ON public.payments(order_id);
+CREATE INDEX IF NOT EXISTS idx_payments_payment_date ON public.payments(payment_date);
+
+-- Enable RLS and setup policies for public.payments
+ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow anon read payments" ON public.payments;
+CREATE POLICY "Allow anon read payments" ON public.payments FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow anon insert payments" ON public.payments;
+CREATE POLICY "Allow anon insert payments" ON public.payments FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow anon update payments" ON public.payments;
+CREATE POLICY "Allow anon update payments" ON public.payments FOR UPDATE USING (true);
+
+DROP POLICY IF EXISTS "Allow anon delete payments" ON public.payments;
+CREATE POLICY "Allow anon delete payments" ON public.payments FOR DELETE USING (true);
+
+-- Atomic PostgreSQL RPC function to add payment and update order totals
+CREATE OR REPLACE FUNCTION public.record_order_payment(
+  p_order_id UUID,
+  p_amount NUMERIC,
+  p_payment_method TEXT,
+  p_payment_date TIMESTAMPTZ,
+  p_notes TEXT DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_payment_id UUID;
+  v_total_paid NUMERIC;
+  v_total_amount NUMERIC;
+  v_balance_due NUMERIC;
+  v_payment_status TEXT;
+BEGIN
+  -- 1. Insert new payment record
+  INSERT INTO public.payments (order_id, amount, payment_method, payment_date, notes)
+  VALUES (p_order_id, p_amount, p_payment_method, p_payment_date, p_notes)
+  RETURNING id INTO v_payment_id;
+
+  -- 2. Calculate Total Paid
+  SELECT COALESCE(SUM(amount), 0)
+  INTO v_total_paid
+  FROM public.payments
+  WHERE order_id = p_order_id;
+
+  -- 3. Retrieve order total amount
+  SELECT COALESCE(total_amount, 0)
+  INTO v_total_amount
+  FROM public.orders
+  WHERE id = p_order_id;
+
+  -- 4. Calculate Balance Due & Status
+  v_balance_due := GREATEST(0, v_total_amount - v_total_paid);
+
+  IF v_total_paid <= 0 THEN
+    v_payment_status := 'Unpaid';
+  ELSIF v_total_paid >= v_total_amount AND v_total_amount > 0 THEN
+    v_payment_status := 'Paid';
+  ELSE
+    v_payment_status := 'Partial';
+  END IF;
+
+  -- 5. Update order record
+  UPDATE public.orders
+  SET
+    advance_amount = v_total_paid,
+    balance_amount = v_balance_due,
+    payment_status = v_payment_status
+  WHERE id = p_order_id;
+
+  RETURN jsonb_build_object(
+    'payment_id', v_payment_id,
+    'order_id', p_order_id,
+    'total_paid', v_total_paid,
+    'balance_due', v_balance_due,
+    'payment_status', v_payment_status
+  );
+END;
+$$;
+
 -- 0. EXTENSIONS
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";

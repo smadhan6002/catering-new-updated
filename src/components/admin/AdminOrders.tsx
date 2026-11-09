@@ -33,7 +33,7 @@ import { generateInvoicePDF } from '../../utils/generateInvoicePDF';
 import { AdminAddOrderModal } from './AdminAddOrderModal';
 import { KitchenOrderSheetModal } from './KitchenOrderSheetModal';
 import { useLanguage } from '../../context/LanguageContext';
-import type { Order, OrderStatus, OrderPayment, PaymentMethod, OrderSource } from '../../types/admin';
+import type { Order, OrderStatus, OrderPayment, PaymentMethod, OrderSource, PaymentStatus } from '../../types/admin';
 import { ta } from '../../locales/ta';
 
 const ORDER_STATUSES: OrderStatus[] = [
@@ -60,6 +60,7 @@ const statusColor: Record<string, string> = {
 const payStatusColors: Record<string, string> = {
   'Paid': 'bg-green-100 text-green-800',
   'Fully Paid': 'bg-green-100 text-green-800',
+  'Partial': 'bg-amber-100 text-amber-800',
   'Partially Paid': 'bg-amber-100 text-amber-800',
   'Advance Paid': 'bg-blue-100 text-blue-800',
   'Unpaid': 'bg-red-100 text-red-800',
@@ -114,6 +115,9 @@ const OrderDetail: React.FC<OrderDetailProps> = ({ order: initialOrder, onClose,
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
   const [downloadingInvoice, setDownloadingInvoice] = useState(false);
+  const [loadingPayments, setLoadingPayments] = useState(false);
+  const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
+  const [isDeletingPayment, setIsDeletingPayment] = useState(false);
 
   // Payment Add / Edit Modal state
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -132,12 +136,33 @@ const OrderDetail: React.FC<OrderDetailProps> = ({ order: initialOrder, onClose,
     setTimeout(() => setToast(''), 2500);
   }
 
+  // Fetch real-time fresh payments from Supabase when order is viewed
+  useEffect(() => {
+    let isMounted = true;
+    async function loadFreshPayments() {
+      if (!initialOrder?.id) return;
+      setLoadingPayments(true);
+      try {
+        const fresh = await orderService.getPaymentsForOrder(initialOrder.id);
+        if (isMounted && Array.isArray(fresh)) {
+          setPayments(fresh);
+        }
+      } catch (err) {
+        console.warn('Failed to load fresh payments from Supabase:', err);
+      } finally {
+        if (isMounted) setLoadingPayments(false);
+      }
+    }
+    loadFreshPayments();
+    return () => { isMounted = false; };
+  }, [initialOrder?.id]);
+
   // Automatic Dynamic Calculations
   const total = parseFloat(totalAmt) || 0;
   const currentTotalPaid = payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
   const currentBalanceDue = Math.max(0, total - currentTotalPaid);
-  const currentPayStatus: 'Unpaid' | 'Partially Paid' | 'Paid' =
-    currentTotalPaid <= 0 ? 'Unpaid' : currentTotalPaid >= total && total > 0 ? 'Paid' : 'Partially Paid';
+  const currentPayStatus: PaymentStatus =
+    currentTotalPaid <= 0 ? 'Unpaid' : currentTotalPaid >= total && total > 0 ? 'Paid' : 'Partial';
 
   function openAddPaymentModal() {
     setEditingPaymentId(null);
@@ -177,85 +202,92 @@ const OrderDetail: React.FC<OrderDetailProps> = ({ order: initialOrder, onClose,
       return;
     }
 
-    let updatedPayments: OrderPayment[];
-    if (editingPaymentId) {
-      updatedPayments = payments.map((p) => {
-        if (p.id === editingPaymentId) {
-          return {
-            ...p,
+    setIsSubmittingPayment(true);
+    try {
+      if (editingPaymentId) {
+        const result = await orderService.updatePayment(
+          order.id,
+          editingPaymentId,
+          {
             amount: amt,
             date: payDateInput,
             method: payMethodInput,
             note: payNoteInput.trim() || undefined,
-          };
-        }
-        return p;
-      });
-    } else {
-      const newPay: OrderPayment = {
-        id: `pay-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        amount: amt,
-        date: payDateInput,
-        method: payMethodInput,
-        note: payNoteInput.trim() || undefined,
-      };
-      updatedPayments = [...payments, newPay];
+          },
+          total
+        );
+        setOrder(result.order);
+        setPayments(result.payments);
+        setIsPaymentModalOpen(false);
+        onUpdated();
+        showToast('Payment updated successfully.');
+      } else {
+        const result = await orderService.addPayment(
+          order.id,
+          {
+            amount: amt,
+            date: payDateInput,
+            method: payMethodInput,
+            note: payNoteInput.trim() || undefined,
+          },
+          total
+        );
+        setOrder(result.order);
+        setPayments(result.payments);
+        setIsPaymentModalOpen(false);
+        onUpdated();
+        showToast('Payment added successfully.');
+      }
+    } catch (err: any) {
+      console.error('Save payment error:', err);
+      setModalError(err.message || 'Failed to save payment to Supabase.');
+    } finally {
+      setIsSubmittingPayment(false);
     }
-
-    setPayments(updatedPayments);
-    setIsPaymentModalOpen(false);
-
-    // Persist immediately
-    const updated = await orderService.update(order.id, {
-      totalAmount: total,
-      payments: updatedPayments,
-      status,
-      notes,
-      adminNotes,
-    });
-    if (updated) setOrder(updated);
-    onUpdated();
-    showToast(editingPaymentId ? 'Payment updated.' : 'Payment added.');
   }
 
   async function handleDeletePayment() {
     if (!deletingPaymentId) return;
-    const updatedPayments = payments.filter((p) => p.id !== deletingPaymentId);
-    setPayments(updatedPayments);
-    setDeletingPaymentId(null);
-
-    // Save immediately
-    const updated = await orderService.update(order.id, {
-      totalAmount: total,
-      payments: updatedPayments,
-      status,
-      notes,
-      adminNotes,
-    });
-    if (updated) setOrder(updated);
-    onUpdated();
-    showToast('Payment deleted.');
+    setIsDeletingPayment(true);
+    try {
+      const result = await orderService.deletePayment(order.id, deletingPaymentId, total);
+      setOrder(result.order);
+      setPayments(result.payments);
+      setDeletingPaymentId(null);
+      onUpdated();
+      showToast('Payment deleted successfully.');
+    } catch (err: any) {
+      console.error('Delete payment error:', err);
+      showToast(err.message || 'Failed to delete payment from Supabase.');
+    } finally {
+      setIsDeletingPayment(false);
+    }
   }
 
   async function handleSave() {
     setPayError('');
-    if (total < currentTotalPaid) {
-      setPayError(`Total amount cannot be less than total paid (₹${currentTotalPaid.toLocaleString('en-IN')}).`);
+    if (isNaN(total) || total < 0) {
+      setPayError('Total amount must be a positive number.');
       return;
     }
 
     setSaving(true);
     try {
-      const updated = await orderService.update(order.id, {
+      const updated = await orderService.updateOrderTotalAndDetails(order.id, {
         totalAmount: total,
-        payments,
         status,
         notes,
         adminNotes,
       });
-      if (updated) setOrder(updated);
+      if (updated) {
+        setOrder(updated);
+        setPayments(updated.payments || payments);
+      }
       onUpdated();
       showToast('Order saved successfully.');
+    } catch (err: any) {
+      console.error('Save order error:', err);
+      setPayError(err.message || 'Failed to save order to Supabase.');
     } finally {
       setSaving(false);
     }
@@ -539,7 +571,12 @@ const OrderDetail: React.FC<OrderDetailProps> = ({ order: initialOrder, onClose,
                   </button>
                 </div>
 
-                {payments.length === 0 ? (
+                {loadingPayments ? (
+                  <div className="py-6 text-center text-xs text-slate-500 bg-slate-50 rounded-lg flex items-center justify-center gap-2">
+                    <Loader2 size={16} className="animate-spin text-primary" />
+                    <span>Loading payment history from Supabase…</span>
+                  </div>
+                ) : payments.length === 0 ? (
                   <div className="py-6 text-center text-xs text-slate-400 bg-slate-50 rounded-lg border border-dashed border-slate-200">
                     No payments recorded yet. Click "Add Payment" to record an advance.
                   </div>
@@ -753,15 +790,24 @@ const OrderDetail: React.FC<OrderDetailProps> = ({ order: initialOrder, onClose,
                 <button
                   type="button"
                   onClick={() => setIsPaymentModalOpen(false)}
-                  className="flex-1 py-2.5 border border-slate-300 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                  disabled={isSubmittingPayment}
+                  className="flex-1 py-2.5 border border-slate-300 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-xl text-sm font-semibold transition-colors shadow-sm"
+                  disabled={isSubmittingPayment}
+                  className="flex-1 py-2.5 bg-primary hover:bg-primary/90 disabled:opacity-60 text-white rounded-xl text-sm font-semibold transition-colors shadow-sm inline-flex items-center justify-center gap-2 cursor-pointer"
                 >
-                  Save Payment
+                  {isSubmittingPayment ? (
+                    <>
+                      <Loader2 size={15} className="animate-spin" />
+                      <span>Saving to Supabase…</span>
+                    </>
+                  ) : (
+                    <span>{editingPaymentId ? 'Update Payment' : 'Add Payment'}</span>
+                  )}
                 </button>
               </div>
             </form>
@@ -774,7 +820,7 @@ const OrderDetail: React.FC<OrderDetailProps> = ({ order: initialOrder, onClose,
         <div className="fixed inset-0 z-[160] flex items-center justify-center p-4">
           <div
             className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm"
-            onClick={() => setDeletingPaymentId(null)}
+            onClick={() => !isDeletingPayment && setDeletingPaymentId(null)}
           />
           <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 z-10">
             <h3 className="font-semibold text-slate-900 mb-2">Delete Payment</h3>
@@ -785,16 +831,25 @@ const OrderDetail: React.FC<OrderDetailProps> = ({ order: initialOrder, onClose,
               <button
                 type="button"
                 onClick={() => setDeletingPaymentId(null)}
-                className="flex-1 py-2.5 border border-slate-300 rounded-xl text-sm text-slate-700 hover:bg-slate-50"
+                disabled={isDeletingPayment}
+                className="flex-1 py-2.5 border border-slate-300 rounded-xl text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleDeletePayment}
-                className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-medium"
+                disabled={isDeletingPayment}
+                className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white rounded-xl text-sm font-medium inline-flex items-center justify-center gap-2 cursor-pointer"
               >
-                Delete Payment
+                {isDeletingPayment ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" />
+                    <span>Deleting…</span>
+                  </>
+                ) : (
+                  <span>Delete Payment</span>
+                )}
               </button>
             </div>
           </div>
