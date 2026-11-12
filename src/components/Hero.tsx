@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { useLanguage } from '../context/LanguageContext';
-import { generateMenuPDF } from '../utils/generateMenuPDF';
 import heroImg from '../assets/Home section.jpg';
 import { Download, Utensils } from 'lucide-react';
 
@@ -11,6 +10,7 @@ export const Hero: React.FC = () => {
   async function handleDownloadMenu() {
     setDownloading(true);
     try {
+      const { generateMenuPDF } = await import('../utils/generateMenuPDF');
       await generateMenuPDF(undefined, lang);
     } catch (err) {
       console.error(err);

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { User, ChevronDown, Check } from 'lucide-react';
 import { categories } from './data/menu';
@@ -10,10 +10,22 @@ import { MenuSection } from './components/MenuSection';
 import { CartActionBar } from './components/CartActionBar';
 import { CartDrawer } from './components/CartDrawer';
 import { RiceSuggestionModal } from './components/RiceSuggestionModal';
-import { AdminPage } from './components/admin/AdminPage';
 import { Footer } from './components/Footer';
 import { FoodImageDisclaimer } from './components/FoodImageDisclaimer';
 import logoImg from './assets/LOGO.png';
+
+const AdminPage = lazy(() =>
+  import('./components/admin/AdminPage').then((m) => ({ default: m.AdminPage }))
+);
+
+function AdminRouteFallback() {
+  return (
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
+      <div className="w-10 h-10 border-3 border-orange-200 border-t-primary rounded-full animate-spin mb-3" />
+      <p className="text-slate-600 text-xs font-medium">Loading Admin Portal…</p>
+    </div>
+  );
+}
 
 function LanguageSwitcher() {
   const { lang, setLang } = useLanguage();
@@ -187,8 +199,22 @@ export default function App() {
         <CartProvider>
           <Routes>
             <Route path="/" element={<MainApp />} />
-            <Route path="/admin" element={<AdminPage />} />
-            <Route path="/admin/*" element={<AdminPage />} />
+            <Route
+              path="/admin"
+              element={
+                <Suspense fallback={<AdminRouteFallback />}>
+                  <AdminPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/admin/*"
+              element={
+                <Suspense fallback={<AdminRouteFallback />}>
+                  <AdminPage />
+                </Suspense>
+              }
+            />
           </Routes>
         </CartProvider>
       </LanguageProvider>
