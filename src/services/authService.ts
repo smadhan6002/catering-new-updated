@@ -3,7 +3,12 @@
  * Powered exclusively by Supabase Auth (email/password) & public.admin_users table.
  */
 import { ADMIN_SESSION_KEY, ADMIN_USER_ID_KEY } from '../config/admin';
-import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import {
+  supabase,
+  isSupabaseConfigured,
+  getSupabaseDiagnostics,
+  type SupabaseEnvDiagnostics,
+} from '../lib/supabase';
 import type { User, Session } from '@supabase/supabase-js';
 
 export interface AdminUserRecord {
@@ -20,6 +25,7 @@ export interface LoginResult {
   needsAdminAuthorization?: boolean;
   userId?: string;
   userEmail?: string;
+  diagnostics?: SupabaseEnvDiagnostics;
 }
 
 export const authService = {
@@ -37,10 +43,16 @@ export const authService = {
     }
 
     if (!isSupabaseConfigured) {
+      const diagnostics = getSupabaseDiagnostics();
+      const statusSummary = [
+        `VITE_SUPABASE_URL: ${diagnostics.urlValid ? 'OK' : diagnostics.hasUrl ? 'Invalid URL' : 'Missing'}`,
+        `VITE_SUPABASE_ANON_KEY: ${diagnostics.anonKeyValid ? 'OK' : diagnostics.hasAnonKey ? 'Invalid/Placeholder' : 'Missing'}`,
+      ].join(', ');
+
       return {
         success: false,
-        error:
-          'Supabase is not configured on this environment. Please ensure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are set in Vercel project settings.',
+        diagnostics,
+        error: `Supabase is not configured on this environment (${statusSummary}). Ensure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are enabled for Production in Vercel and trigger a fresh Redeploy without build cache.`,
       };
     }
 

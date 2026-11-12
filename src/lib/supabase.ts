@@ -1,20 +1,96 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+// Access Vite environment variables statically so Vite inlines them at build time
+const rawSupabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const rawSupabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-export const isSupabaseConfigured = Boolean(
-  supabaseUrl &&
-  supabaseAnonKey &&
-  supabaseUrl !== 'https://your-project.supabase.co' &&
-  supabaseUrl !== '' &&
-  supabaseAnonKey !== ''
-);
+function normalizeEnvValue(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return value.trim().replace(/^["']|["']$/g, '').trim();
+}
 
-// Create Supabase client singleton with safe fallback
+function isPlaceholderValue(value: string): boolean {
+  const lower = value.toLowerCase();
+  return (
+    !value ||
+    lower.includes('your-project') ||
+    lower.includes('your_supabase') ||
+    lower.includes('placeholder') ||
+    lower.includes('<your') ||
+    lower === 'undefined' ||
+    lower === 'null'
+  );
+}
+
+function isValidHttpUrl(value: string): boolean {
+  if (!value || isPlaceholderValue(value)) return false;
+  try {
+    const parsed = new URL(value);
+    return (parsed.protocol === 'https:' || parsed.protocol === 'http:') && Boolean(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+const supabaseUrl = normalizeEnvValue(rawSupabaseUrl).replace(/\/+$/, '');
+const supabaseAnonKey = normalizeEnvValue(rawSupabaseAnonKey);
+
+const hasUrl = Boolean(supabaseUrl);
+const urlValid = isValidHttpUrl(supabaseUrl);
+const hasAnonKey = Boolean(supabaseAnonKey);
+const anonKeyValid =
+  hasAnonKey && !isPlaceholderValue(supabaseAnonKey) && supabaseAnonKey.length >= 20;
+
+export const isSupabaseConfigured: boolean = urlValid && anonKeyValid;
+
+export interface SupabaseEnvDiagnostics {
+  configured: boolean;
+  hasUrl: boolean;
+  urlValid: boolean;
+  hasAnonKey: boolean;
+  anonKeyValid: boolean;
+  missingOrInvalid: ('VITE_SUPABASE_URL' | 'VITE_SUPABASE_ANON_KEY')[];
+  mode: string;
+}
+
+/**
+ * Returns safe boolean diagnostics (never includes keys, tokens, or credentials)
+ */
+export function getSupabaseDiagnostics(): SupabaseEnvDiagnostics {
+  const missingOrInvalid: ('VITE_SUPABASE_URL' | 'VITE_SUPABASE_ANON_KEY')[] = [];
+  if (!urlValid) missingOrInvalid.push('VITE_SUPABASE_URL');
+  if (!anonKeyValid) missingOrInvalid.push('VITE_SUPABASE_ANON_KEY');
+
+  return {
+    configured: isSupabaseConfigured,
+    hasUrl,
+    urlValid,
+    hasAnonKey,
+    anonKeyValid,
+    missingOrInvalid,
+    mode: import.meta.env.MODE || 'unknown',
+  };
+}
+
+export const supabaseDiagnostics: SupabaseEnvDiagnostics = getSupabaseDiagnostics();
+
+if (typeof window !== 'undefined' && !isSupabaseConfigured) {
+  // Safe diagnostics only: never logs URL values, keys, or secrets
+  console.warn('[Supabase Diagnostics] Environment variables missing or invalid at build time:', {
+    configured: supabaseDiagnostics.configured,
+    hasUrl: supabaseDiagnostics.hasUrl,
+    urlValid: supabaseDiagnostics.urlValid,
+    hasAnonKey: supabaseDiagnostics.hasAnonKey,
+    anonKeyValid: supabaseDiagnostics.anonKeyValid,
+    missingOrInvalid: supabaseDiagnostics.missingOrInvalid,
+    mode: supabaseDiagnostics.mode,
+  });
+}
+
+// Create shared Supabase client singleton with safe fallback
 export const supabase: SupabaseClient = createClient(
-  supabaseUrl || 'https://placeholder.supabase.co',
-  supabaseAnonKey || 'placeholder-anon-key',
+  isSupabaseConfigured ? supabaseUrl : 'https://placeholder.supabase.co',
+  isSupabaseConfigured ? supabaseAnonKey : 'placeholder-anon-key',
   {
     auth: {
       persistSession: true,
@@ -33,9 +109,10 @@ export async function testSupabaseConnection(): Promise<{
   tables?: string[];
 }> {
   if (!isSupabaseConfigured) {
+    const diag = getSupabaseDiagnostics();
     return {
       connected: false,
-      message: 'Supabase URL or Anon Key is missing in environment variables.',
+      message: `Supabase environment configuration incomplete (${diag.missingOrInvalid.join(', ')} missing or invalid in build).`,
     };
   }
 

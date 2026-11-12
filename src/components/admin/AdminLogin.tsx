@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Lock, Mail, Eye, EyeOff, ChefHat, AlertTriangle, CheckCircle, Copy, Check } from 'lucide-react';
 import { authService, type LoginResult } from '../../services/authService';
+import { isSupabaseConfigured, supabaseDiagnostics } from '../../lib/supabase';
 import { siteConfig } from '../../config/site';
 import { useLanguage } from '../../context/LanguageContext';
 
@@ -79,9 +80,43 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLogin }) => {
           </p>
 
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm mb-5 flex items-start gap-2.5">
-              <AlertTriangle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
-              <div className="flex-1 text-xs leading-relaxed">{error}</div>
+            <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm mb-5 space-y-2">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
+                <div className="flex-1 text-xs leading-relaxed">{error}</div>
+              </div>
+              {!isSupabaseConfigured && (
+                <div className="pl-7 pt-1 flex flex-wrap gap-1.5 text-[11px] font-mono">
+                  <span
+                    className={`px-2 py-0.5 rounded border ${
+                      supabaseDiagnostics.urlValid
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                        : 'bg-white border-red-200 text-red-700'
+                    }`}
+                  >
+                    VITE_SUPABASE_URL:{' '}
+                    {supabaseDiagnostics.urlValid
+                      ? 'Present'
+                      : supabaseDiagnostics.hasUrl
+                      ? 'Invalid'
+                      : 'Missing'}
+                  </span>
+                  <span
+                    className={`px-2 py-0.5 rounded border ${
+                      supabaseDiagnostics.anonKeyValid
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                        : 'bg-white border-red-200 text-red-700'
+                    }`}
+                  >
+                    VITE_SUPABASE_ANON_KEY:{' '}
+                    {supabaseDiagnostics.anonKeyValid
+                      ? 'Present'
+                      : supabaseDiagnostics.hasAnonKey
+                      ? 'Invalid'
+                      : 'Missing'}
+                  </span>
+                </div>
+              )}
             </div>
           )}
 
@@ -187,9 +222,16 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLogin }) => {
 
           <div className="mt-6 pt-5 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
             <span>{isTa ? 'பாதுகாப்பான அட்மின் போர்டல்' : 'Secure Admin Portal'}</span>
-            <span className="flex items-center gap-1 font-medium text-slate-500">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
-              Supabase Auth
+            <span
+              className="flex items-center gap-1.5 font-medium text-slate-500"
+              title={`VITE_SUPABASE_URL: ${supabaseDiagnostics.urlValid ? 'Present' : 'Missing'} | VITE_SUPABASE_ANON_KEY: ${supabaseDiagnostics.anonKeyValid ? 'Present' : 'Missing'}`}
+            >
+              <span
+                className={`w-1.5 h-1.5 rounded-full inline-block ${
+                  isSupabaseConfigured ? 'bg-green-500' : 'bg-red-500'
+                }`}
+              />
+              {isSupabaseConfigured ? 'Supabase Auth' : 'Supabase Not Configured'}
             </span>
           </div>
         </div>

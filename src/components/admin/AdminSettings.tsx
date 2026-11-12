@@ -16,7 +16,7 @@ import {
 import { siteConfig } from '../../config/site';
 import { campaignService } from '../../services/campaignService';
 import { migrationService, type MigrationSummary } from '../../services/migrationService';
-import { testSupabaseConnection, isSupabaseConfigured } from '../../lib/supabase';
+import { testSupabaseConnection, isSupabaseConfigured, supabaseDiagnostics } from '../../lib/supabase';
 import { settingsService } from '../../services/settingsService';
 import { useLanguage } from '../../context/LanguageContext';
 
@@ -34,7 +34,9 @@ export const AdminSettings: React.FC = () => {
   }>({
     tested: false,
     connected: isSupabaseConfigured,
-    message: isSupabaseConfigured ? 'Supabase credentials loaded in environment.' : 'Supabase credentials missing.',
+    message: isSupabaseConfigured
+      ? 'Supabase credentials loaded in environment.'
+      : `Supabase configuration missing or invalid (${supabaseDiagnostics.missingOrInvalid.join(', ')}).`,
   });
 
   const [migrating, setMigrating] = useState(false);
@@ -66,7 +68,7 @@ VITE_WHATSAPP_BUSINESS_ACCOUNT_ID=
 
 # Supabase Production Database Backend
 VITE_SUPABASE_URL=https://szdvgehgqzijgctswone.supabase.co
-VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN6ZHZnZWhncXppamdjdHN3b25lIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQxOTM1MTUsImV4cCI6MjEwOTc2OTUxNX0.xi3cpvF_qwD5pPAnddtk831VQzyICzrwTpIzPME1KIk
+VITE_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_PUBLIC_KEY
 `;
 
   function copyEnv() {
