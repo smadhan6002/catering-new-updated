@@ -47,6 +47,7 @@ export const AdminSettings: React.FC = () => {
   const [phone, setPhone] = useState(siteConfig.whatsappNumber);
   const [savingSettings, setSavingSettings] = useState(false);
   const [savedSettingsSuccess, setSavedSettingsSuccess] = useState(false);
+  const [savedSettingsError, setSavedSettingsError] = useState('');
 
   useEffect(() => {
     // Load custom settings from Supabase/cache
@@ -54,6 +55,11 @@ export const AdminSettings: React.FC = () => {
     const savedPhone = settingsService.get('business_phone', siteConfig.whatsappNumber);
     setCateringName(savedName);
     setPhone(savedPhone);
+
+    settingsService.syncFromSupabase().then(() => {
+      setCateringName(settingsService.get('business_name', siteConfig.name));
+      setPhone(settingsService.get('business_phone', siteConfig.whatsappNumber));
+    }).catch(() => {});
   }, []);
 
   const isApiConfigured = campaignService.isApiConfigured();
@@ -113,11 +119,14 @@ VITE_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_PUBLIC_KEY
   async function handleSaveSettings(e: React.FormEvent) {
     e.preventDefault();
     setSavingSettings(true);
+    setSavedSettingsError('');
     try {
       await settingsService.set('business_name', cateringName.trim());
       await settingsService.set('business_phone', phone.trim());
       setSavedSettingsSuccess(true);
       setTimeout(() => setSavedSettingsSuccess(false), 3000);
+    } catch (err: any) {
+      setSavedSettingsError(err?.message || 'Failed to save settings to Supabase.');
     } finally {
       setSavingSettings(false);
     }
@@ -297,7 +306,11 @@ VITE_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_PUBLIC_KEY
           </div>
 
           <div className="flex items-center justify-between pt-2">
-            {savedSettingsSuccess ? (
+            {savedSettingsError ? (
+              <span className="text-xs font-bold text-red-600 flex items-center gap-1">
+                <AlertCircle size={14} /> {savedSettingsError}
+              </span>
+            ) : savedSettingsSuccess ? (
               <span className="text-xs font-bold text-emerald-600 flex items-center gap-1">
                 <Check size={14} /> {isTa ? 'அமைப்புகள் சேமிக்கப்பட்டன!' : 'Settings saved permanently to Supabase!'}
               </span>

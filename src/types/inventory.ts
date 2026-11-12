@@ -21,6 +21,8 @@ export type InventoryUnit =
   | 'boxes'
   | 'bundles'
   | 'dozens'
+  | 'bottles'
+  | 'rolls'
   | string;
 
 export interface InventoryItem {

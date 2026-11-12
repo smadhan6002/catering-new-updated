@@ -572,7 +572,9 @@ export const RentalDocumentModal: React.FC<RentalDocumentModalProps> = ({
                 <tbody className="divide-y divide-slate-100">
                   {items.map((itm, idx) => {
                     const catalogItem = catalogItems.find((c) => c.id === itm.itemId);
-                    const isOverbooked = catalogItem && itm.quantity > catalogItem.availableQuantity;
+                    const isOverbooked = Boolean(
+                      catalogItem && catalogItem.totalQuantity > 0 && itm.quantity > catalogItem.availableQuantity
+                    );
 
                     return (
                       <tr key={idx} className="hover:bg-slate-50/60">
@@ -590,13 +592,20 @@ export const RentalDocumentModal: React.FC<RentalDocumentModalProps> = ({
                           >
                             {catalogItems.map((ci) => (
                               <option key={ci.id} value={ci.id}>
-                                [{ci.code}] {isTa ? ci.nameTa : ci.nameEn} (₹{ci.rentalPrice} / {ci.pricingUnit} • Avail: {ci.availableQuantity})
+                                [{ci.code}] {isTa ? ci.nameTa : ci.nameEn} (
+                                {ci.rentalPrice > 0
+                                  ? `₹${ci.rentalPrice} / ${ci.pricingUnit}`
+                                  : isTa ? 'விலை இல்லை' : 'Rate not set'}
+                                {ci.totalQuantity > 0
+                                  ? ` • ${isTa ? 'இருப்பு' : 'Avail'}: ${ci.availableQuantity}`
+                                  : ''}
+                                )
                               </option>
                             ))}
                           </select>
 
                           {/* Inventory Availability Warning */}
-                          {isOverbooked && (
+                          {isOverbooked && catalogItem && (
                             <p className="text-[11px] text-amber-700 mt-1 flex items-center gap-1 font-semibold">
                               <AlertTriangle size={12} className="flex-shrink-0" />
                               <span>

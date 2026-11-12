@@ -36,7 +36,7 @@ export const AdminRentalItems: React.FC = () => {
   const [documents, setDocuments] = useState<RentalDocument[]>([]);
   const [items, setItems] = useState<RentalItem[]>([]);
   const [categories, setCategories] = useState<RentalCategory[]>([]);
-  const [toast, setToast] = useState('');
+  const [toast, setToast] = useState<{ text: string; isError?: boolean } | null>(null);
 
   // Modals
   const [docModalOpen, setDocModalOpen] = useState(false);
@@ -86,7 +86,7 @@ export const AdminRentalItems: React.FC = () => {
   // Search & Filters for Inventory
   const [itemSearch, setItemSearch] = useState('');
   const [itemCategoryFilter, setItemCategoryFilter] = useState('all');
-  const [itemStockFilter, setItemStockFilter] = useState<'all' | 'available' | 'low' | 'out'>('all');
+  const [itemStockFilter, setItemStockFilter] = useState<'all' | 'available' | 'low' | 'out' | 'unset'>('all');
 
   function reloadAll() {
     setDocuments(rentalService.getAllDocuments());
@@ -104,9 +104,9 @@ export const AdminRentalItems: React.FC = () => {
     reloadAll();
   }, []);
 
-  function showToast(msg: string) {
-    setToast(msg);
-    setTimeout(() => setToast(''), 3000);
+  function showToast(msg: string, isError = false) {
+    setToast({ text: msg, isError });
+    setTimeout(() => setToast(null), 3500);
   }
 
   // ─── DOCUMENT ACTIONS ───────────────────────────────────────────
@@ -148,29 +148,43 @@ export const AdminRentalItems: React.FC = () => {
 
   async function handleConfirmReturn() {
     if (!returnModalDoc) return;
-    await rentalService.updateStatus(returnModalDoc.id, 'Returned', actualReturnDate, returnNotes);
-    showToast(
-      isTa
-        ? `வாடகை ஆவணம் ${returnModalDoc.rentalNumber} திரும்பப் பெறப்பட்டது என குறிக்கப்பட்டது!`
-        : `Rental ${returnModalDoc.rentalNumber} marked as returned!`
-    );
-    setReturnModalDoc(null);
-    reloadAll();
+    try {
+      await rentalService.updateStatus(returnModalDoc.id, 'Returned', actualReturnDate, returnNotes);
+      showToast(
+        isTa
+          ? `வாடகை ஆவணம் ${returnModalDoc.rentalNumber} திரும்பப் பெறப்பட்டது என குறிக்கப்பட்டது!`
+          : `Rental ${returnModalDoc.rentalNumber} marked as returned!`
+      );
+      setReturnModalDoc(null);
+      reloadAll();
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to update return status.', true);
+    }
   }
 
   async function handleDeleteDocument(doc: RentalDocument) {
-    await rentalService.deleteDocument(doc.id);
-    setDeleteDocConfirm(null);
-    showToast(isTa ? `வாடகை ஆவணம் ${doc.rentalNumber} நீக்கப்பட்டது.` : `Document ${doc.rentalNumber} deleted.`);
-    reloadAll();
+    try {
+      await rentalService.deleteDocument(doc.id);
+      setDeleteDocConfirm(null);
+      showToast(isTa ? `வாடகை ஆவணம் ${doc.rentalNumber} நீக்கப்பட்டது.` : `Document ${doc.rentalNumber} deleted.`);
+      reloadAll();
+    } catch (err: any) {
+      setDeleteDocConfirm(null);
+      showToast(err?.message || 'Failed to delete rental document.', true);
+    }
   }
 
   // ─── ITEM ACTIONS ───────────────────────────────────────────────
   function openAddItem() {
     setEditingItemId(null);
     const cats = rentalService.getCategories();
+    const maxCodeNum = items.reduce((max, it) => {
+      const m = /^RNT-(\d+)$/i.exec(it.code.trim());
+      return m ? Math.max(max, parseInt(m[1], 10)) : max;
+    }, 0);
+    const nextCode = `RNT-${String(Math.max(items.length + 1, maxCodeNum + 1)).padStart(3, '0')}`;
     setItemForm({
-      code: `RNT-${String(items.length + 1).padStart(3, '0')}`,
+      code: nextCode,
       nameEn: '',
       nameTa: '',
       categoryId: cats[0]?.id || 'cat-cooking',
@@ -267,24 +281,33 @@ export const AdminRentalItems: React.FC = () => {
   }
 
   async function handleDeleteItem(item: RentalItem) {
-    const res = await rentalService.deleteItem(item.id);
-    setDeleteItemConfirm(null);
-    if (res.softDeleted) {
-      showToast(
-        isTa
-          ? `"${item.nameTa || item.nameEn}" முந்தைய ஆர்டர்களில் உள்ளதால் பாதுகாப்பாக செயலிழக்கப்பட்டது.`
-          : `"${item.nameEn}" is referenced in rental documents and has been safely deactivated.`
-      );
-    } else {
-      showToast(isTa ? `"${item.nameTa || item.nameEn}" நீக்கப்பட்டது.` : `"${item.nameEn}" removed.`);
+    try {
+      const res = await rentalService.deleteItem(item.id);
+      setDeleteItemConfirm(null);
+      if (res.softDeleted) {
+        showToast(
+          isTa
+            ? `"${item.nameTa || item.nameEn}" முந்தைய ஆர்டர்களில் உள்ளதால் பாதுகாப்பாக செயலிழக்கப்பட்டது.`
+            : `"${item.nameEn}" is referenced in rental documents and has been safely deactivated.`
+        );
+      } else {
+        showToast(isTa ? `"${item.nameTa || item.nameEn}" நீக்கப்பட்டது.` : `"${item.nameEn}" removed.`);
+      }
+      reloadAll();
+    } catch (err: any) {
+      setDeleteItemConfirm(null);
+      showToast(err?.message || 'Failed to delete rental item.', true);
     }
-    reloadAll();
   }
 
   async function handleToggleItemActive(item: RentalItem) {
-    await rentalService.updateItem(item.id, { isActive: !item.isActive });
-    showToast(item.isActive ? 'Item deactivated.' : 'Item reactivated.');
-    reloadAll();
+    try {
+      await rentalService.updateItem(item.id, { isActive: !item.isActive });
+      showToast(item.isActive ? 'Item deactivated.' : 'Item reactivated.');
+      reloadAll();
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to update item status.', true);
+    }
   }
 
   // ─── CATEGORY ACTIONS ───────────────────────────────────────────
@@ -342,9 +365,11 @@ export const AdminRentalItems: React.FC = () => {
     if (itemStockFilter === 'available') {
       list = list.filter((i) => i.availableQuantity > 0);
     } else if (itemStockFilter === 'low') {
-      list = list.filter((i) => i.availableQuantity > 0 && i.availableQuantity <= 5);
+      list = list.filter((i) => i.totalQuantity > 0 && i.availableQuantity > 0 && i.availableQuantity <= 5);
     } else if (itemStockFilter === 'out') {
-      list = list.filter((i) => i.availableQuantity === 0);
+      list = list.filter((i) => i.totalQuantity > 0 && i.availableQuantity === 0);
+    } else if (itemStockFilter === 'unset') {
+      list = list.filter((i) => i.totalQuantity === 0);
     }
 
     if (itemSearch.trim()) {
@@ -389,9 +414,19 @@ export const AdminRentalItems: React.FC = () => {
     <div className="p-4 md:p-6 space-y-6">
       {/* Toast Notification */}
       {toast && (
-        <div className="fixed top-4 right-4 z-[200] bg-slate-900 text-white px-5 py-3 rounded-xl shadow-xl flex items-center gap-2 text-sm border border-slate-700 animate-in fade-in slide-in-from-top-2 duration-200">
-          <Check size={16} className="text-green-400" />
-          <span>{toast}</span>
+        <div
+          className={`fixed top-4 right-4 z-[200] px-5 py-3 rounded-xl shadow-xl flex items-center gap-2 text-sm border animate-in fade-in slide-in-from-top-2 duration-200 ${
+            toast.isError
+              ? 'bg-red-950 text-red-100 border-red-800'
+              : 'bg-slate-900 text-white border-slate-700'
+          }`}
+        >
+          {toast.isError ? (
+            <AlertTriangle size={16} className="text-red-400" />
+          ) : (
+            <Check size={16} className="text-green-400" />
+          )}
+          <span>{toast.text}</span>
         </div>
       )}
 
@@ -759,6 +794,7 @@ export const AdminRentalItems: React.FC = () => {
                 <option value="available">{isTa ? 'இருப்பில் உள்ளவை (>0)' : 'In Stock (>0)'}</option>
                 <option value="low">{isTa ? 'குறைந்த இருப்பு (1-5)' : 'Low Stock (1-5)'}</option>
                 <option value="out">{isTa ? 'தீர்ந்துவிட்டது (0)' : 'Out of Stock (0)'}</option>
+                <option value="unset">{isTa ? 'இருப்பு அமைக்கப்படவில்லை' : 'Stock Not Set'}</option>
               </select>
             </div>
           </div>
@@ -783,8 +819,9 @@ export const AdminRentalItems: React.FC = () => {
                   {filteredItems.map((item) => {
                     const cat = categories.find((c) => c.id === item.categoryId);
                     const catName = isTa ? cat?.nameTa || cat?.name : cat?.name;
-                    const isOutOfStock = item.availableQuantity === 0;
-                    const isLowStock = item.availableQuantity > 0 && item.availableQuantity <= 5;
+                    const isUnsetStock = item.totalQuantity === 0;
+                    const isOutOfStock = item.totalQuantity > 0 && item.availableQuantity === 0;
+                    const isLowStock = item.totalQuantity > 0 && item.availableQuantity > 0 && item.availableQuantity <= 5;
 
                     return (
                       <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
@@ -812,28 +849,48 @@ export const AdminRentalItems: React.FC = () => {
 
                         {/* Total Stock */}
                         <td className="px-4 py-3.5 text-center font-bold text-slate-800">
-                          {item.totalQuantity}
+                          {isUnsetStock ? (
+                            <span className="text-xs font-medium text-slate-400">
+                              {isTa ? 'அமைக்கப்படவில்லை' : 'Not set'}
+                            </span>
+                          ) : (
+                            item.totalQuantity
+                          )}
                         </td>
 
                         {/* Available */}
                         <td className="px-4 py-3.5 text-center">
-                          <span
-                            className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                              isOutOfStock
-                                ? 'bg-red-100 text-red-700'
-                                : isLowStock
-                                ? 'bg-amber-100 text-amber-800'
-                                : 'bg-green-100 text-green-800'
-                            }`}
-                          >
-                            {item.availableQuantity}
-                          </span>
+                          {isUnsetStock ? (
+                            <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-500">
+                              —
+                            </span>
+                          ) : (
+                            <span
+                              className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+                                isOutOfStock
+                                  ? 'bg-red-100 text-red-700'
+                                  : isLowStock
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-green-100 text-green-800'
+                              }`}
+                            >
+                              {item.availableQuantity}
+                            </span>
+                          )}
                         </td>
 
                         {/* Rental Rate */}
                         <td className="px-4 py-3.5">
-                          <span className="font-bold text-slate-900">₹{item.rentalPrice}</span>
-                          <span className="text-[11px] text-slate-500 block">/ {item.pricingUnit}</span>
+                          {item.rentalPrice > 0 ? (
+                            <>
+                              <span className="font-bold text-slate-900">₹{item.rentalPrice}</span>
+                              <span className="text-[11px] text-slate-500 block">/ {item.pricingUnit}</span>
+                            </>
+                          ) : (
+                            <span className="text-xs font-medium text-slate-400">
+                              {isTa ? 'விலை இல்லை' : 'Not set'}
+                            </span>
+                          )}
                         </td>
 
                         {/* Deposit */}
@@ -1113,6 +1170,7 @@ export const AdminRentalItems: React.FC = () => {
                     className="w-full px-2 py-2 border border-slate-300 rounded-lg bg-white"
                   >
                     <option value="Per Day">Per Day</option>
+                    <option value="Per Piece">Per Piece</option>
                     <option value="Per Item">Per Item</option>
                     <option value="Per Function">Per Function</option>
                     <option value="Per Set">Per Set</option>

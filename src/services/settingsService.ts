@@ -1,5 +1,6 @@
 /**
  * settingsService — Site settings persistence with Supabase `site_settings` table
+ * Uses live schema columns: `id`, `setting_key`, `setting_value`, `updated_at`.
  */
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
@@ -15,9 +16,13 @@ export const settingsService = {
     try {
       const { data, error } = await supabase.from('site_settings').select('*');
       if (!error && Array.isArray(data)) {
-        const settings: Record<string, unknown> = {};
-        data.forEach((row) => {
-          settings[row.key] = row.value;
+        const settings: Record<string, unknown> = { ...this.getAll() };
+        data.forEach((row: Record<string, unknown>) => {
+          const settingKey = (row.setting_key as string) ?? (row.key as string);
+          if (settingKey) {
+            settings[settingKey] =
+              row.setting_value !== undefined ? row.setting_value : row.value;
+          }
         });
         localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
         return settings;
@@ -50,11 +55,18 @@ export const settingsService = {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(all));
 
     if (isSupabaseConfigured) {
-      await supabase.from('site_settings').upsert({
-        key,
-        value: value as unknown as Record<string, unknown>,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'key' });
+      const { error } = await supabase.from('site_settings').upsert(
+        {
+          setting_key: key,
+          setting_value: value as unknown as Record<string, unknown>,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'setting_key' }
+      );
+      if (error) {
+        console.error('Failed to save setting in Supabase:', error.message);
+        throw new Error(error.message);
+      }
     }
   },
 };
@@ -65,4 +77,3 @@ if (typeof window !== 'undefined' && isSupabaseConfigured) {
     settingsService.syncFromSupabase().catch(() => {});
   }, 3000);
 }
-

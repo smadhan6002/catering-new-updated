@@ -49,9 +49,11 @@ export const migrationService = {
         customerLeads: JSON.parse(localStorage.getItem('catering_customer_leads') || '[]'),
         inventoryCategories: JSON.parse(localStorage.getItem('kanchi_inventory_categories') || '[]'),
         inventoryItems: JSON.parse(localStorage.getItem('kanchi_inventory_items') || '[]'),
+        inventoryMetadata: JSON.parse(localStorage.getItem('kanchi_inventory_metadata') || '{}'),
         inventoryDocuments: JSON.parse(localStorage.getItem('kanchi_inventory_documents') || '[]'),
         rentalCategories: JSON.parse(localStorage.getItem('annapoorna_rental_categories') || '[]'),
         rentalItems: JSON.parse(localStorage.getItem('annapoorna_rental_items') || '[]'),
+        rentalMetadata: JSON.parse(localStorage.getItem('kanchi_rental_metadata') || '{}'),
         rentalDocuments: JSON.parse(localStorage.getItem('annapoorna_rental_documents') || '[]'),
         kitchenSheets: JSON.parse(localStorage.getItem('annapoorna_kitchen_sheets') || '[]'),
         invoices: JSON.parse(localStorage.getItem('annapoorna_invoices') || '[]'),
@@ -252,54 +254,130 @@ export const migrationService = {
     }
 
     // 4. Grocery & Vegetable Inventory
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const ensureUuid = (val?: string) =>
+      val && uuidRegex.test(val)
+        ? val
+        : typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `00000000-0000-4000-8000-${String(Date.now()).slice(-12).padStart(12, '0')}`;
+
     try {
-      const invCategories: InventoryCategory[] = JSON.parse(localStorage.getItem('kanchi_inventory_categories') || '[]');
+      const invCategories: InventoryCategory[] = JSON.parse(
+        localStorage.getItem('kanchi_inventory_categories') || '[]'
+      );
       if (invCategories.length > 0) {
-        const catRows = invCategories.map((c) => ({
-          id: c.id,
-          name_en: c.nameEn,
-          name_ta: c.nameTa,
-        }));
-        const { error } = await supabase.from('inventory_categories').upsert(catRows, { onConflict: 'id' });
-        if (!error) summary.inventoryCategories = catRows.length;
+        const { error } = await supabase.from('site_settings').upsert(
+          {
+            setting_key: 'kanchi_inventory_categories',
+            setting_value: invCategories,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'setting_key' }
+        );
+        if (error) summary.errors.push(`Inventory categories: ${error.message}`);
+        else summary.inventoryCategories = invCategories.length;
       }
 
-      const invItems: InventoryItem[] = JSON.parse(localStorage.getItem('kanchi_inventory_items') || '[]');
+      const invItems: InventoryItem[] = JSON.parse(
+        localStorage.getItem('kanchi_inventory_items') || '[]'
+      );
+      const invMetaMap: Record<string, Record<string, unknown>> = JSON.parse(
+        localStorage.getItem('kanchi_inventory_metadata') || '{}'
+      );
+
       if (invItems.length > 0) {
-        const itemRows = invItems.map((it) => ({
-          id: it.id,
-          name_en: it.nameEn,
-          name_ta: it.nameTa,
-          category_id: it.categoryId,
-          unit: it.unit,
-          stock_quantity: it.stockQuantity || null,
-          unit_price: it.unitPrice || null,
-          is_active: it.isActive ?? true,
-          created_at: it.createdAt || new Date().toISOString(),
-          updated_at: it.updatedAt || new Date().toISOString(),
-        }));
-        const { error } = await supabase.from('inventory_items').upsert(itemRows, { onConflict: 'id' });
-        if (!error) summary.inventoryItems = itemRows.length;
+        const itemRows = invItems.map((it) => {
+          const itemId = ensureUuid(it.id);
+          const stock = it.currentStock !== undefined ? it.currentStock : it.stockQuantity;
+          const entryMeta: Record<string, unknown> = { ...(invMetaMap[itemId] || {}) };
+          if (stock !== undefined) {
+            entryMeta.currentStock = stock;
+            entryMeta.stockQuantity = stock;
+          }
+          if (it.purchaseQuantity !== undefined) entryMeta.purchaseQuantity = it.purchaseQuantity;
+          if (it.unitPrice !== undefined) entryMeta.unitPrice = it.unitPrice;
+          if (it.supplierName) entryMeta.supplierName = it.supplierName;
+          if (it.purchaseDate) entryMeta.purchaseDate = it.purchaseDate;
+          if (it.expiryDate) entryMeta.expiryDate = it.expiryDate;
+          if (it.notes) entryMeta.notes = it.notes;
+          if (it.isActive !== undefined && it.isActive !== true) entryMeta.isActive = it.isActive;
+          if (Object.keys(entryMeta).length > 0) {
+            invMetaMap[itemId] = entryMeta;
+          }
+
+          return {
+            id: itemId,
+            name: it.nameEn,
+            tamil_name: it.nameTa || it.nameEn,
+            category: it.categoryId,
+            unit: it.unit,
+            created_at: it.createdAt || new Date().toISOString(),
+          };
+        });
+
+        const { error } = await supabase
+          .from('inventory_items')
+          .upsert(itemRows, { onConflict: 'id' });
+        if (error) summary.errors.push(`Inventory items: ${error.message}`);
+        else summary.inventoryItems = itemRows.length;
+
+        if (Object.keys(invMetaMap).length > 0) {
+          await supabase.from('site_settings').upsert(
+            {
+              setting_key: 'kanchi_inventory_metadata',
+              setting_value: invMetaMap,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'setting_key' }
+          );
+        }
       }
 
-      const invDocs: InventoryDocument[] = JSON.parse(localStorage.getItem('kanchi_inventory_documents') || '[]');
+      const invDocs: InventoryDocument[] = JSON.parse(
+        localStorage.getItem('kanchi_inventory_documents') || '[]'
+      );
       for (const d of invDocs) {
-        const docRow = {
-          id: d.id,
+        const docId = ensureUuid(d.id);
+        const meta = {
+          docNumber: d.docNumber,
           title: d.title,
-          event_name: d.eventName,
-          customer_name: d.customerName || null,
-          event_date: d.eventDate || null,
-          document_date: d.documentDate,
-          prepared_by: d.preparedBy || null,
+          eventName: d.eventName,
+          customerName: d.customerName || null,
+          eventDate: d.eventDate || null,
+          preparedBy: d.preparedBy || null,
           notes: d.notes || null,
           language: d.language || 'both',
-          total_amount: d.totalAmount || 0,
-          items: d.items || [],
-          created_at: d.createdAt || new Date().toISOString(),
+          totalAmount: d.totalAmount || null,
         };
-        const { error } = await supabase.from('purchase_documents').upsert(docRow, { onConflict: 'id' });
-        if (!error) summary.purchaseDocuments++;
+        const { error } = await supabase.from('purchase_documents').upsert(
+          {
+            id: docId,
+            document_date: d.documentDate,
+            notes: JSON.stringify(meta),
+            created_at: d.createdAt || new Date().toISOString(),
+          },
+          { onConflict: 'id' }
+        );
+        if (error) {
+          summary.errors.push(`Purchase doc ${d.docNumber}: ${error.message}`);
+        } else {
+          summary.purchaseDocuments++;
+          if (Array.isArray(d.items) && d.items.length > 0) {
+            await supabase.from('purchase_items').delete().eq('document_id', docId);
+            const itemRows = d.items.map((it) => ({
+              id: ensureUuid(it.id),
+              document_id: docId,
+              item_id: it.catalogueItemId && uuidRegex.test(it.catalogueItemId) ? it.catalogueItemId : null,
+              item_name: it.nameEn,
+              quantity: Number(it.quantity) || 0,
+              unit: it.unit,
+              price: it.unitPrice || null,
+              notes: it.nameTa || it.notes || null,
+            }));
+            await supabase.from('purchase_items').insert(itemRows);
+          }
+        }
       }
     } catch (err) {
       summary.errors.push(`Inventory error: ${String(err)}`);
@@ -307,70 +385,125 @@ export const migrationService = {
 
     // 5. Rental Items & Documents
     try {
-      const rentalCats: RentalCategory[] = JSON.parse(localStorage.getItem('annapoorna_rental_categories') || '[]');
+      const rentalCats: RentalCategory[] = JSON.parse(
+        localStorage.getItem('annapoorna_rental_categories') || '[]'
+      );
       if (rentalCats.length > 0) {
-        const rCatRows = rentalCats.map((c) => ({
-          id: c.id,
-          name: c.name,
-          name_ta: c.nameTa,
-          description: c.description || null,
-        }));
-        const { error } = await supabase.from('rental_categories').upsert(rCatRows, { onConflict: 'id' });
-        if (!error) summary.rentalCategories = rCatRows.length;
+        const { error } = await supabase.from('site_settings').upsert(
+          {
+            setting_key: 'kanchi_rental_categories',
+            setting_value: rentalCats,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'setting_key' }
+        );
+        if (error) summary.errors.push(`Rental categories: ${error.message}`);
+        else summary.rentalCategories = rentalCats.length;
       }
 
-      const rentalItems: RentalItem[] = JSON.parse(localStorage.getItem('annapoorna_rental_items') || '[]');
+      const rentalItems: RentalItem[] = JSON.parse(
+        localStorage.getItem('annapoorna_rental_items') || '[]'
+      );
+      const rentalMetaMap: Record<string, Record<string, unknown>> = JSON.parse(
+        localStorage.getItem('kanchi_rental_metadata') || '{}'
+      );
+
       if (rentalItems.length > 0) {
-        const rItemRows = rentalItems.map((r) => ({
-          id: r.id,
-          code: r.code,
-          name_en: r.nameEn,
-          name_ta: r.nameTa,
-          category_id: r.categoryId,
-          total_quantity: r.totalQuantity || 0,
-          rental_price: r.rentalPrice || 0,
-          pricing_unit: r.pricingUnit || 'Per Day',
-          security_deposit: r.securityDeposit || 0,
-          description: r.description || null,
-          notes: r.notes || null,
-          is_active: r.isActive ?? true,
-          created_at: r.createdAt || new Date().toISOString(),
-        }));
-        const { error } = await supabase.from('rental_items').upsert(rItemRows, { onConflict: 'id' });
-        if (!error) summary.rentalItems = rItemRows.length;
+        const rItemRows = rentalItems.map((r) => {
+          const itemId = ensureUuid(r.id);
+          rentalMetaMap[itemId] = {
+            ...(rentalMetaMap[itemId] || {}),
+            code: r.code,
+            categoryId: r.categoryId,
+            totalQuantity: Number(r.totalQuantity) || 0,
+            securityDeposit: Number(r.securityDeposit) || 0,
+            ...(r.description ? { description: r.description } : {}),
+            ...(r.notes ? { notes: r.notes } : {}),
+            isActive: r.isActive ?? true,
+          };
+
+          return {
+            id: itemId,
+            name: r.nameEn,
+            tamil_name: r.nameTa || r.nameEn,
+            price: r.rentalPrice || 0,
+            unit: r.pricingUnit || 'Per Day',
+            created_at: r.createdAt || new Date().toISOString(),
+          };
+        });
+
+        const { error } = await supabase
+          .from('rental_items')
+          .upsert(rItemRows, { onConflict: 'id' });
+        if (error) summary.errors.push(`Rental items: ${error.message}`);
+        else summary.rentalItems = rItemRows.length;
+
+        await supabase.from('site_settings').upsert(
+          {
+            setting_key: 'kanchi_rental_metadata',
+            setting_value: rentalMetaMap,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'setting_key' }
+        );
       }
 
-      const rentalDocs: RentalDocument[] = JSON.parse(localStorage.getItem('annapoorna_rental_documents') || '[]');
-      if (rentalDocs.length > 0) {
-        const rDocRows = rentalDocs.map((rd) => ({
-          id: rd.id,
-          rental_number: rd.rentalNumber,
-          customer_name: rd.customerName,
-          mobile: rd.mobile,
+      const rentalDocs: RentalDocument[] = JSON.parse(
+        localStorage.getItem('annapoorna_rental_documents') || '[]'
+      );
+      for (const rd of rentalDocs) {
+        const docId = ensureUuid(rd.id);
+        const meta = {
+          rentalNumber: rd.rentalNumber,
+          functionName: rd.functionName || null,
+          functionDate: rd.functionDate,
+          rentalStartDate: rd.rentalStartDate,
+          expectedReturnDate: rd.expectedReturnDate,
+          actualReturnDate: rd.actualReturnDate || null,
           address: rd.address || null,
-          function_name: rd.functionName || null,
-          document_date: rd.documentDate,
-          function_date: rd.functionDate,
-          rental_start_date: rd.rentalStartDate,
-          expected_return_date: rd.expectedReturnDate,
-          actual_return_date: rd.actualReturnDate || null,
-          delivery_details: rd.deliveryDetails || null,
-          items: rd.items || [],
+          deliveryDetails: rd.deliveryDetails || null,
           subtotal: rd.subtotal || 0,
-          additional_charges: rd.additionalCharges || 0,
+          additionalCharges: rd.additionalCharges || 0,
           discount: rd.discount || 0,
-          security_deposit: rd.securityDeposit || 0,
-          grand_total: rd.grandTotal || 0,
-          advance_paid: rd.advancePaid || 0,
-          balance_due: rd.balanceDue || 0,
+          securityDeposit: rd.securityDeposit || 0,
+          grandTotal: rd.grandTotal || 0,
+          advancePaid: rd.advancePaid || 0,
+          balanceDue: rd.balanceDue || 0,
           status: rd.status || 'Confirmed',
           notes: rd.notes || null,
           terms: rd.terms || null,
-          preferred_language: rd.preferredLanguage || 'en',
-          created_at: rd.createdAt || new Date().toISOString(),
-        }));
-        const { error } = await supabase.from('rental_documents').upsert(rDocRows, { onConflict: 'id' });
-        if (!error) summary.rentalDocuments = rDocRows.length;
+          preferredLanguage: rd.preferredLanguage || 'en',
+          items: rd.items || [],
+        };
+        const { error } = await supabase.from('rental_documents').upsert(
+          {
+            id: docId,
+            customer_name: rd.customerName,
+            phone: rd.mobile,
+            document_date: rd.documentDate,
+            notes: JSON.stringify(meta),
+            created_at: rd.createdAt || new Date().toISOString(),
+          },
+          { onConflict: 'id' }
+        );
+        if (error) {
+          summary.errors.push(`Rental doc ${rd.rentalNumber}: ${error.message}`);
+        } else {
+          summary.rentalDocuments++;
+          if (Array.isArray(rd.items) && rd.items.length > 0) {
+            await supabase.from('rental_document_items').delete().eq('document_id', docId);
+            const docItems = rd.items.map((itm) => ({
+              id: ensureUuid(undefined),
+              document_id: docId,
+              item_id: itm.itemId && uuidRegex.test(itm.itemId) ? itm.itemId : null,
+              item_name: itm.nameEn,
+              quantity: itm.quantity,
+              price: itm.pricePerUnit,
+              subtotal: itm.lineTotal,
+            }));
+            await supabase.from('rental_document_items').insert(docItems);
+          }
+        }
       }
     } catch (err) {
       summary.errors.push(`Rentals error: ${String(err)}`);

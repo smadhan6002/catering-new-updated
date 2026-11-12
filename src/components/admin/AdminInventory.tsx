@@ -185,6 +185,14 @@ export const AdminInventory: React.FC = () => {
   const [formExpiryDate, setFormExpiryDate] = useState('');
   const [formNotes, setFormNotes] = useState('');
   const [formError, setFormError] = useState('');
+  const [itemSaving, setItemSaving] = useState(false);
+  const [docSaving, setDocSaving] = useState(false);
+  const [toastMsg, setToastMsg] = useState<{ text: string; isError?: boolean } | null>(null);
+
+  function showToast(text: string, isError = false) {
+    setToastMsg({ text, isError });
+    setTimeout(() => setToastMsg(null), 3500);
+  }
 
   function openAddItemModal() {
     setEditingItem(null);
@@ -247,45 +255,66 @@ export const AdminInventory: React.FC = () => {
       return;
     }
 
-    if (editingItem) {
-      await inventoryService.updateItem({
-        ...editingItem,
-        nameEn: formNameEn.trim(),
-        nameTa: formNameTa.trim() || formNameEn.trim(),
-        categoryId: formCategory,
-        unit: formUnit,
-        currentStock: stockNum,
-        purchaseQuantity: purchaseQtyNum,
-        unitPrice: priceNum,
-        supplierName: formSupplier.trim() || undefined,
-        purchaseDate: formPurchaseDate.trim() || undefined,
-        expiryDate: formExpiryDate.trim() || undefined,
-        notes: formNotes.trim() || undefined,
-      });
-    } else {
-      await inventoryService.addItem({
-        nameEn: formNameEn.trim(),
-        nameTa: formNameTa.trim() || formNameEn.trim(),
-        categoryId: formCategory,
-        unit: formUnit,
-        currentStock: stockNum,
-        purchaseQuantity: purchaseQtyNum,
-        unitPrice: priceNum,
-        supplierName: formSupplier.trim() || undefined,
-        purchaseDate: formPurchaseDate.trim() || undefined,
-        expiryDate: formExpiryDate.trim() || undefined,
-        notes: formNotes.trim() || undefined,
-      });
-    }
+    setItemSaving(true);
+    try {
+      if (editingItem) {
+        await inventoryService.updateItem({
+          ...editingItem,
+          nameEn: formNameEn.trim(),
+          nameTa: formNameTa.trim() || formNameEn.trim(),
+          categoryId: formCategory,
+          unit: formUnit,
+          currentStock: stockNum,
+          purchaseQuantity: purchaseQtyNum,
+          unitPrice: priceNum,
+          supplierName: formSupplier.trim() || undefined,
+          purchaseDate: formPurchaseDate.trim() || undefined,
+          expiryDate: formExpiryDate.trim() || undefined,
+          notes: formNotes.trim() || undefined,
+        });
+        showToast(isTa ? 'பொருள் வெற்றிகரமாக புதுப்பிக்கப்பட்டது!' : 'Inventory item updated.');
+      } else {
+        await inventoryService.addItem({
+          nameEn: formNameEn.trim(),
+          nameTa: formNameTa.trim() || formNameEn.trim(),
+          categoryId: formCategory,
+          unit: formUnit,
+          currentStock: stockNum,
+          purchaseQuantity: purchaseQtyNum,
+          unitPrice: priceNum,
+          supplierName: formSupplier.trim() || undefined,
+          purchaseDate: formPurchaseDate.trim() || undefined,
+          expiryDate: formExpiryDate.trim() || undefined,
+          notes: formNotes.trim() || undefined,
+        });
+        showToast(isTa ? 'புதிய பொருள் சேர்க்கப்பட்டது!' : 'New inventory item added.');
+      }
 
-    setIsItemModalOpen(false);
-    loadData();
+      setIsItemModalOpen(false);
+      loadData();
+    } catch (err: any) {
+      setFormError(
+        err?.message ||
+          (isTa ? 'பொருளைச் சேமிப்பதில் பிழை ஏற்பட்டது.' : 'Failed to save inventory item.')
+      );
+    } finally {
+      setItemSaving(false);
+    }
   }
 
   async function handleDeleteItem(item: InventoryItem) {
-    await inventoryService.deleteItem(item.id);
-    setDeleteConfirmItem(null);
-    loadData();
+    try {
+      await inventoryService.deleteItem(item.id);
+      setDeleteConfirmItem(null);
+      showToast(isTa ? 'பொருள் நீக்கப்பட்டது.' : 'Inventory item deleted.');
+      loadData();
+    } catch (err: any) {
+      setDeleteConfirmItem(null);
+      showToast(
+        err?.message || (isTa ? 'பொருளை நீக்குவதில் பிழை.' : 'Failed to delete inventory item.'),
+        true
+      );
+    }
   }
 
   function handleSaveNewCategory(e: React.FormEvent) {
@@ -509,21 +538,31 @@ export const AdminInventory: React.FC = () => {
       };
     });
 
-    const saved = await inventoryService.saveDocument({
-      title: docTitle.trim() || 'Grocery & Vegetable Purchase List',
-      eventName: docEventName.trim(),
-      customerName: docCustomerName.trim() || undefined,
-      eventDate: docEventDate,
-      documentDate: docDocumentDate || new Date().toISOString().split('T')[0],
-      preparedBy: docPreparedBy.trim() || undefined,
-      notes: docNotes.trim() || undefined,
-      language: docLanguage,
-      items: sanitizedItems,
-    });
+    setDocSaving(true);
+    try {
+      const saved = await inventoryService.saveDocument({
+        title: docTitle.trim() || 'Grocery & Vegetable Purchase List',
+        eventName: docEventName.trim(),
+        customerName: docCustomerName.trim() || undefined,
+        eventDate: docEventDate,
+        documentDate: docDocumentDate || new Date().toISOString().split('T')[0],
+        preparedBy: docPreparedBy.trim() || undefined,
+        notes: docNotes.trim() || undefined,
+        language: docLanguage,
+        items: sanitizedItems,
+      });
 
-    setPreviewDoc(saved);
-    setDocuments(inventoryService.getDocuments());
-    setDocStep('preview');
+      setPreviewDoc(saved);
+      setDocuments(inventoryService.getDocuments());
+      setDocStep('preview');
+    } catch (err: any) {
+      setQtyValidationError(
+        err?.message ||
+          (isTa ? 'ஆவணத்தைச் சேமிப்பதில் பிழை ஏற்பட்டது.' : 'Failed to save purchase document.')
+      );
+    } finally {
+      setDocSaving(false);
+    }
   }
 
   async function handleDownloadPDF(docToDownload: InventoryDocument, docLang: 'en' | 'ta') {
@@ -542,11 +581,20 @@ export const AdminInventory: React.FC = () => {
   }
 
   async function handleDeleteDocument(doc: InventoryDocument) {
-    await inventoryService.deleteDocument(doc.id);
-    setDeleteConfirmDoc(null);
-    setDocuments(inventoryService.getDocuments());
-    if (previewDoc?.id === doc.id) {
-      setPreviewDoc(null);
+    try {
+      await inventoryService.deleteDocument(doc.id);
+      setDeleteConfirmDoc(null);
+      setDocuments(inventoryService.getDocuments());
+      if (previewDoc?.id === doc.id) {
+        setPreviewDoc(null);
+      }
+      showToast(isTa ? 'ஆவணம் நீக்கப்பட்டது.' : 'Document deleted.');
+    } catch (err: any) {
+      setDeleteConfirmDoc(null);
+      showToast(
+        err?.message || (isTa ? 'ஆவணத்தை நீக்குவதில் பிழை.' : 'Failed to delete document.'),
+        true
+      );
     }
   }
 
@@ -563,6 +611,22 @@ export const AdminInventory: React.FC = () => {
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-7xl mx-auto">
+      {toastMsg && (
+        <div
+          className={`fixed top-4 right-4 z-[200] px-5 py-3 rounded-xl shadow-xl flex items-center gap-2 text-sm border animate-in fade-in slide-in-from-top-2 duration-200 ${
+            toastMsg.isError
+              ? 'bg-red-950 text-red-100 border-red-800'
+              : 'bg-slate-900 text-white border-slate-700'
+          }`}
+        >
+          {toastMsg.isError ? (
+            <AlertCircle size={16} className="text-red-400" />
+          ) : (
+            <Check size={16} className="text-green-400" />
+          )}
+          <span>{toastMsg.text}</span>
+        </div>
+      )}
       {/* ─── TOP HEADER ───────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
         <div>
@@ -1298,9 +1362,12 @@ export const AdminInventory: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-primary hover:bg-[#c2410c] text-white text-xs sm:text-sm font-semibold rounded-xl shadow-xs transition-all cursor-pointer"
+                  disabled={itemSaving}
+                  className="px-5 py-2 bg-primary hover:bg-[#c2410c] text-white text-xs sm:text-sm font-semibold rounded-xl shadow-xs transition-all cursor-pointer disabled:opacity-60"
                 >
-                  {editingItem
+                  {itemSaving
+                    ? isTa ? 'சேமிக்கப்படுகிறது…' : 'Saving…'
+                    : editingItem
                     ? isTa ? 'மாற்றங்களைச் சேமி' : 'Save Changes'
                     : isTa ? 'பொருளைச் சேர்' : 'Add Item'}
                 </button>
@@ -2214,9 +2281,14 @@ export const AdminInventory: React.FC = () => {
                   <button
                     type="button"
                     onClick={handleSaveAndPreviewDocument}
-                    className="px-5 py-2 bg-primary hover:bg-[#c2410c] text-white text-xs font-bold rounded-xl shadow-md cursor-pointer flex items-center gap-2"
+                    disabled={docSaving}
+                    className="px-5 py-2 bg-primary hover:bg-[#c2410c] text-white text-xs font-bold rounded-xl shadow-md cursor-pointer flex items-center gap-2 disabled:opacity-60"
                   >
-                    <span>{isTa ? 'ஆவணத்தைச் சேமி & முன்னோட்டம் காண் ✓' : 'Save Document & Preview ✓'}</span>
+                    <span>
+                      {docSaving
+                        ? isTa ? 'சேமிக்கப்படுகிறது…' : 'Saving…'
+                        : isTa ? 'ஆவணத்தைச் சேமி & முன்னோட்டம் காண் ✓' : 'Save Document & Preview ✓'}
+                    </span>
                     {missingQtyItemIds.length > 0 && (
                       <span className="px-1.5 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-bold animate-pulse">
                         {missingQtyItemIds.length} {isTa ? 'அளவு விடுபட்டுள்ளது' : 'missing'}
