@@ -25,7 +25,9 @@ export const AdminInvoices: React.FC = () => {
     setDownloading(order.id);
     try {
       const invoice = await invoiceService.create(order.id);
-      generateInvoicePDF(order, invoice);
+      await generateInvoicePDF(order, invoice);
+    } catch (err) {
+      console.error('Invoice PDF error:', err);
     } finally {
       setTimeout(() => setDownloading(null), 1000);
     }

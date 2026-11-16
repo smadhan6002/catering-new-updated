@@ -7,21 +7,16 @@ import jsPDF from 'jspdf';
 import type { RentalDocument } from '../types/rental';
 import { siteConfig, getBusinessName } from '../config/site';
 import logoImg from '../assets/LOGO.png';
-
-function loadImage(src: string): Promise<HTMLImageElement | null> {
-  return new Promise((resolve) => {
-    if (!src) {
-      resolve(null);
-      return;
-    }
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
-    img.src = src;
-    setTimeout(() => resolve(null), 2000);
-  });
-}
+import {
+  renderDocumentHeader,
+  renderCompactDocumentHeader,
+  renderDocumentFooter,
+  renderDecorativePageFrame,
+  ensureFontsReady,
+  loadImage,
+  drawFittedText,
+  PAGE_GEOMETRY,
+} from './documentHeaderFooter';
 
 function formatDate(isoDate?: string, isTa = false): string {
   if (!isoDate) return '—';
@@ -48,23 +43,25 @@ export async function generateRentalPDF(
 ): Promise<void> {
   onProgress?.(10, 'Preparing rental document layout…');
 
+  await ensureFontsReady();
+
   const isTa = language === 'ta';
   const logo = await loadImage(logoImg);
 
   // Canvas A4 dimensions at 2x resolution (1240 x 1754 px)
-  const PAGE_WIDTH = 1240;
-  const PAGE_HEIGHT = 1754;
+  const PAGE_WIDTH = PAGE_GEOMETRY.PAGE_WIDTH;
+  const PAGE_HEIGHT = PAGE_GEOMETRY.PAGE_HEIGHT;
 
   // Dynamic continuous page calculation for compact, waste-free layout
   const rowH = 42;
   const maxTableY = 1640;
   const summaryH = 280;
 
-  const p1StartY = 48 + 135 + 148 + 36; // 367
+  const p1StartY = 48 + 140 + 16 + 130 + 18 + 36; // 388
   const p1CapWithSummary = Math.min(18, Math.floor((maxTableY - summaryH - p1StartY) / rowH));
   const p1CapWithoutSummary = Math.min(24, Math.floor((maxTableY - p1StartY) / rowH));
 
-  const pNextStartY = 48 + 135 + 10 + 36; // 229
+  const pNextStartY = 48 + 64 + 14 + 10 + 36; // 172
   const pNextCapWithSummary = Math.min(24, Math.floor((maxTableY - summaryH - pNextStartY) / rowH));
   const pNextCapWithoutSummary = Math.min(30, Math.floor((maxTableY - pNextStartY) / rowH));
 
@@ -187,79 +184,30 @@ export async function generateRentalPDF(
     ctx.fillRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
 
     // Decorative Borders
-    ctx.strokeStyle = '#FFF7ED';
-    ctx.lineWidth = 14;
-    ctx.strokeRect(20, 20, PAGE_WIDTH - 40, PAGE_HEIGHT - 40);
+    renderDecorativePageFrame(ctx, PAGE_WIDTH, PAGE_HEIGHT);
 
-    ctx.strokeStyle = '#EA580C';
-    ctx.lineWidth = 2.5;
-    ctx.strokeRect(32, 32, PAGE_WIDTH - 64, PAGE_HEIGHT - 64);
-
+    const bizName = getBusinessName(language);
     let y = 48;
 
-    // ─── TOP HEADER BAND ──────────────────────────────────────
-    ctx.fillStyle = '#EA580C';
-    ctx.fillRect(45, y, PAGE_WIDTH - 90, 115);
-
-    // Accent line
-    ctx.fillStyle = '#F59E0B';
-    ctx.fillRect(45, y + 111, PAGE_WIDTH - 90, 4);
-
-    // Logo
-    if (logo) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(110, y + 58, 42, 0, Math.PI * 2);
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fill();
-      ctx.clip();
-      ctx.drawImage(logo, 68, y + 16, 84, 84);
-      ctx.restore();
-    }
-
-    // Business Name & Title
-    const bizName = getBusinessName(language);
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 30px "Noto Sans Tamil", "Inter", sans-serif';
-    ctx.fillText(bizName, 175, y + 44);
-
-    ctx.font = 'bold 16px "Noto Sans Tamil", "Inter", sans-serif';
-    ctx.fillStyle = '#FEF3C7';
-    ctx.fillText(L.title, 175, y + 74);
-
-    ctx.font = '13px "Inter", "Segoe UI", sans-serif';
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillText(
-      `Ph: +91 ${siteConfig.whatsappNumber}  •  Kanchipuram, Tamil Nadu  •  ${L.subtitle}`,
-      175,
-      y + 98
-    );
-
-    // Right Header Box (Rental Doc Badge)
-    const badgeW = 240;
-    const badgeX = PAGE_WIDTH - 45 - badgeW;
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(badgeX, y + 18, badgeW, 78);
-    ctx.strokeStyle = '#FDBA74';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(badgeX, y + 18, badgeW, 78);
-
-    ctx.fillStyle = '#9A3412';
-    ctx.font = 'bold 12px "Inter", sans-serif';
-    ctx.fillText('RENTAL DOCUMENT', badgeX + 16, y + 40);
-
-    ctx.fillStyle = '#EA580C';
-    ctx.font = 'bold 22px "Inter", sans-serif';
-    ctx.fillText(doc.rentalNumber, badgeX + 16, y + 68);
-
-    ctx.fillStyle = '#475569';
-    ctx.font = 'bold 11px "Inter", sans-serif';
-    ctx.fillText(`STATUS: ${doc.status.toUpperCase()}`, badgeX + 16, y + 86);
-
-    y += 135;
-
-    // ─── CUSTOMER & DATES SECTION (Page 1 only) ───────────────
     if (pageIdx === 0) {
+      // ─── TOP HEADER BAND (Page 1) ───────────────────────────
+      y = renderDocumentHeader({
+        ctx,
+        pageWidth: PAGE_WIDTH,
+        y: 48,
+        headerHeight: 140,
+        language,
+        logo,
+        bizName,
+        title: L.title,
+        subtitle: L.subtitle,
+        badgeType: isTa ? 'வாடகை ஆவணம்' : 'RENTAL DOCUMENT',
+        docNumber: doc.rentalNumber,
+        statusOrDateLabel: `${isTa ? 'நிலை' : 'STATUS'}: ${doc.status.toUpperCase()}`,
+        contactText: `Ph: +91 ${siteConfig.whatsappNumber}  •  Kanchipuram, Tamil Nadu`,
+      });
+
+      // ─── CUSTOMER & DATES SECTION (Page 1 only) ───────────────
       const colW = (PAGE_WIDTH - 110) / 2;
 
       // Box 1: Customer Details
@@ -351,6 +299,16 @@ export async function generateRentalPDF(
 
       y += 148;
     } else {
+      y = renderCompactDocumentHeader({
+        ctx,
+        pageWidth: PAGE_WIDTH,
+        y: 48,
+        language,
+        logo,
+        bizName,
+        title: L.title,
+        docNumber: doc.rentalNumber,
+      });
       y += 10;
     }
 
@@ -399,18 +357,38 @@ export async function generateRentalPDF(
       ctx.font = 'bold 12px "Inter", sans-serif';
       ctx.fillText(String(startIdx + r + 1), colX[0] + 18, y + 28);
 
-      // Item Name
+      // Item Name (Guaranteed no overflow)
       const primaryName = isTa ? (itm.nameTa || itm.nameEn) : (itm.nameEn || itm.nameTa);
       const secondaryName = isTa ? itm.nameEn : itm.nameTa;
 
-      ctx.fillStyle = '#0F172A';
-      ctx.font = 'bold 13px "Noto Sans Tamil", "Inter", sans-serif';
-      ctx.fillText(primaryName, colX[1] + 12, y + 20);
+      drawFittedText(
+        ctx,
+        primaryName,
+        colX[1] + 12,
+        y + 20,
+        395,
+        13,
+        10,
+        '"Noto Sans Tamil", "Inter", sans-serif',
+        'bold',
+        '#0F172A',
+        'left'
+      );
 
       if (secondaryName && secondaryName !== primaryName) {
-        ctx.fillStyle = '#64748B';
-        ctx.font = '11px "Noto Sans Tamil", "Inter", sans-serif';
-        ctx.fillText(`(${secondaryName}) • Code: ${itm.itemCode}`, colX[1] + 12, y + 36);
+        drawFittedText(
+          ctx,
+          `(${secondaryName}) • Code: ${itm.itemCode}`,
+          colX[1] + 12,
+          y + 36,
+          395,
+          11,
+          9,
+          '"Noto Sans Tamil", "Inter", sans-serif',
+          'normal',
+          '#64748B',
+          'left'
+        );
       } else {
         ctx.fillStyle = '#64748B';
         ctx.font = '11px "Inter", sans-serif';
@@ -563,25 +541,16 @@ export async function generateRentalPDF(
     }
 
     // ─── FOOTER ───────────────────────────────────────────────
-    const footerY = PAGE_HEIGHT - 65;
-    ctx.fillStyle = '#E2E8F0';
-    ctx.fillRect(45, footerY, PAGE_WIDTH - 90, 1.5);
-
-    ctx.fillStyle = '#64748B';
-    ctx.font = '12px "Noto Sans Tamil", "Inter", sans-serif';
-    ctx.fillText(
-      `${bizName}  •  Ph: +91 ${siteConfig.whatsappNumber}  •  ${doc.rentalNumber}  •  ${isTa ? 'அனைத்து உரிமைகளும் பாதுகாக்கப்பட்டவை' : 'All rights reserved'}`,
-      45,
-      footerY + 22
-    );
-
-    ctx.font = 'bold 12px "Inter", sans-serif';
-    ctx.fillStyle = '#EA580C';
-    ctx.fillText(
-      `${L.pageOf} ${pageIdx + 1} ${L.of} ${totalPages}`,
-      PAGE_WIDTH - 130,
-      footerY + 22
-    );
+    renderDocumentFooter({
+      ctx,
+      pageWidth: PAGE_WIDTH,
+      pageHeight: PAGE_HEIGHT,
+      language,
+      currentPage: pageIdx + 1,
+      totalPages,
+      docNumber: doc.rentalNumber,
+      bizName,
+    });
 
     // Convert Canvas to Image & Add to jsPDF
     const pageDataUrl = canvas.toDataURL('image/jpeg', 0.95);

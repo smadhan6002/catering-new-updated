@@ -1,268 +1,510 @@
 /**
- * generateInvoicePDF — generates and downloads a professional catering invoice PDF
- * Uses jsPDF + jspdf-autotable
+ * generateInvoicePDF — Generates high-resolution downloadable Customer Invoice PDF
+ * with native Unicode typography (Tamil & English), logo, payment breakdown, and
+ * standard computer-generated document notice on every page.
  */
 import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
-import type { Order } from '../types/admin';
-import type { Invoice } from '../types/admin';
+import type { Order, Invoice } from '../types/admin';
 import { siteConfig, getBusinessName } from '../config/site';
+import logoImg from '../assets/LOGO.png';
+import {
+  normalizeOrderPayments,
+  getOrderTotalPaid,
+  getOrderBalanceDue,
+  getOrderPaymentStatus,
+} from '../services/orderService';
+import {
+  renderDocumentHeader,
+  renderCompactDocumentHeader,
+  renderDocumentFooter,
+  renderDecorativePageFrame,
+  ensureFontsReady,
+  loadImage,
+  drawFittedText,
+  roundRect,
+  BRAND_COLORS,
+  PAGE_GEOMETRY,
+} from './documentHeaderFooter';
 
-import { normalizeOrderPayments, getOrderTotalPaid, getOrderBalanceDue, getOrderPaymentStatus } from '../services/orderService';
-
-function formatDate(isoDate: string): string {
-  if (!isoDate) return '';
-  const d = new Date(isoDate.includes('T') ? isoDate : isoDate + 'T00:00:00');
-  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+function formatDate(isoDate?: string, isTa = false): string {
+  if (!isoDate) return '—';
+  try {
+    const d = new Date(isoDate.includes('T') ? isoDate : isoDate + 'T00:00:00');
+    return d.toLocaleDateString(isTa ? 'ta-IN' : 'en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    });
+  } catch {
+    return isoDate;
+  }
 }
 
-// jsPDF Helvetica does NOT support the Rs. symbol — use "Rs." text instead
-function inr(amount: number): string {
-  return `Rs. ${amount.toLocaleString('en-IN')}`;
+function formatInr(amount: number): string {
+  return `₹ ${(amount || 0).toLocaleString('en-IN')}`;
 }
 
-export function generateInvoicePDF(order: Order, invoice: Invoice, lang: 'en' | 'ta' = 'en'): void {
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  const bizName = getBusinessName(lang);
+export async function generateInvoicePDF(
+  order: Order,
+  invoice: Invoice,
+  lang: 'en' | 'ta' = 'en'
+): Promise<void> {
+  await ensureFontsReady();
 
-  const primaryColor: [number, number, number] = [234, 88, 12]; // #EA580C Primary Orange
-  const darkColor: [number, number, number] = [30, 41, 59];     // #1E293B Body Text
-  const lightGray: [number, number, number] = [255, 247, 237];  // #FFF7ED Light Orange
-  const borderGray: [number, number, number] = [254, 215, 170]; // #FED7AA Light Border
+  const isTa = lang === 'ta';
+  const logo = await loadImage(logoImg);
+  const bizName = getBusinessName(isTa ? 'ta' : 'en');
 
-  const pageW = doc.internal.pageSize.getWidth();
-  const pageH = doc.internal.pageSize.getHeight();
-  let y = 0;
+  const PAGE_WIDTH = PAGE_GEOMETRY.PAGE_WIDTH;
+  const PAGE_HEIGHT = PAGE_GEOMETRY.PAGE_HEIGHT;
 
-  // ─── HEADER BAND ───────────────────────────────────────
-  doc.setFillColor(...primaryColor);
-  doc.rect(0, 0, pageW, 34, 'F');
-
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(18);
-  doc.setFont('helvetica', 'bold');
-  doc.text(bizName, 14, 13);
-
-  doc.setFontSize(9);
-  doc.setFont('helvetica', 'normal');
-  doc.text(`Ph: ${siteConfig.whatsappNumber}`, 14, 21);
-  doc.text('Professional Catering Services', 14, 28);
-
-  doc.setFontSize(28);
-  doc.setFont('helvetica', 'bold');
-  doc.text('INVOICE', pageW - 14, 20, { align: 'right' });
-
-  y = 44;
-
-  // ─── META + BILL TO (2 columns) ──────────────────────────
-  doc.setTextColor(...darkColor);
-  doc.setFontSize(9);
-
-  const metaLeft = 14;
-  const metaRight = pageW / 2 + 8;
-  const colLabelW = 28;
-
-  const leftRows = [
-    ['Invoice No :', invoice.id],
-    ['Order ID   :', order.id],
-    ['Invoice Date:', formatDate(invoice.generatedAt)],
-    ['Order Date  :', formatDate(order.orderDate)],
-  ];
-
-  for (let i = 0; i < leftRows.length; i++) {
-    doc.setFont('helvetica', 'bold');
-    doc.text(leftRows[i][0], metaLeft, y + i * 7);
-    doc.setFont('helvetica', 'normal');
-    doc.text(leftRows[i][1], metaLeft + colLabelW + 2, y + i * 7);
-  }
-
-  // Bill To
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(...primaryColor);
-  doc.text('BILL TO', metaRight, y);
-  doc.setTextColor(...darkColor);
-
-  doc.setFontSize(11);
-  doc.setFont('helvetica', 'bold');
-  doc.text(order.customerName, metaRight, y + 8);
-
-  doc.setFontSize(9);
-  doc.setFont('helvetica', 'normal');
-  doc.text(`Mobile  : ${order.mobile}`, metaRight, y + 16);
-  if (order.eventType) {
-    doc.text(`Event   : ${order.eventType}`, metaRight, y + 23);
-  }
-  if (order.eventAddress) {
-    const wrapped = doc.splitTextToSize(`Address : ${order.eventAddress}`, pageW - metaRight - 14);
-    doc.text(wrapped, metaRight, y + (order.eventType ? 30 : 23));
-  }
-  if (order.guestCount) {
-    doc.text(`Guests  : ${order.guestCount}`, metaRight, y + 38);
-  }
-
-  y += 40;
-
-  // ─── DIVIDER ──────────────────────────────────────────
-  doc.setDrawColor(...primaryColor);
-  doc.setLineWidth(0.5);
-  doc.line(14, y, pageW - 14, y);
-  y += 7;
-
-  // ─── SECTION TITLE ─────────────────────────────────────
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(...primaryColor);
-  doc.text('ITEMS ORDERED', 14, y);
-  y += 4;
-
-  // ─── ITEMS TABLE ───────────────────────────────────────
-  const tableBody = order.items.map((item, i) => [
-    String(i + 1),
-    item.dishName,
-    item.categoryId.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-  ]);
-
-  autoTable(doc, {
-    startY: y,
-    head: [['#', 'Dish Name', 'Category']],
-    body: tableBody,
-    theme: 'striped',
-    showHead: 'everyPage',
-    headStyles: {
-      fillColor: primaryColor,
-      textColor: [255, 255, 255],
-      fontStyle: 'bold',
-      fontSize: 9,
-      cellPadding: 2.5,
-    },
-    styles: {
-      fontSize: 8.5,
-      cellPadding: 2,
-      textColor: darkColor,
-    },
-    alternateRowStyles: { fillColor: lightGray },
-    columnStyles: {
-      0: { cellWidth: 12, halign: 'center' },
-      1: { cellWidth: 'auto' },
-      2: { cellWidth: 55 },
-    },
-    margin: { left: 14, right: 14 },
-  });
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  y = (doc as any).lastAutoTable.finalY + 6;
-
-  // ─── PAYMENT SUMMARY BOX WITH MULTIPLE INSTALLMENTS ───
   const payments = normalizeOrderPayments(order);
   const totalPaid = getOrderTotalPaid(order);
-  const remaining = getOrderBalanceDue(order);
-  const status = getOrderPaymentStatus(order).toUpperCase();
+  const balanceDue = getOrderBalanceDue(order);
+  const paymentStatus = getOrderPaymentStatus(order).toUpperCase();
 
-  const boxW = 104;
-  const boxX = pageW - 14 - boxW;
-  const rowH = 7;
+  // Dynamic layout calculations
+  const rowH = 38;
+  const maxTableY = 1640;
+  const summaryH = 14 + payments.length * 24 + 130;
 
-  const payRows: [string, string][] = [
-    ['Total Amount', inr(order.totalAmount)],
-  ];
+  const p1StartY = 48 + 140 + 16 + 124 + 18 + 36; // 382
+  const p1CapWithSummary = Math.max(8, Math.floor((maxTableY - summaryH - p1StartY) / rowH));
+  const p1CapWithoutSummary = Math.max(12, Math.floor((maxTableY - p1StartY) / rowH));
 
-  payments.forEach((p, idx) => {
-    const dStr = p.date ? new Date(p.date + (p.date.includes('T') ? '' : 'T00:00:00')).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
-    const label = `Pay #${idx + 1} (${p.method}${dStr ? ' · ' + dStr : ''})`;
-    payRows.push([label, inr(p.amount)]);
+  const pNextStartY = 48 + 64 + 14 + 32 + 10 + 36; // 204
+  const pNextCapWithSummary = Math.max(12, Math.floor((maxTableY - summaryH - pNextStartY) / rowH));
+  const pNextCapWithoutSummary = Math.max(16, Math.floor((maxTableY - pNextStartY) / rowH));
+
+  // Partition order items into pages dynamically
+  const pages: (typeof order.items)[] = [];
+  if (order.items.length === 0) {
+    pages.push([]);
+  } else if (order.items.length <= p1CapWithSummary) {
+    pages.push(order.items);
+  } else {
+    let remaining = [...order.items];
+    let pIdx = 0;
+    while (remaining.length > 0) {
+      const isFirst = pIdx === 0;
+      const capWith = isFirst ? p1CapWithSummary : pNextCapWithSummary;
+      const capWithout = isFirst ? p1CapWithoutSummary : pNextCapWithoutSummary;
+
+      if (remaining.length <= capWith) {
+        pages.push(remaining);
+        break;
+      }
+
+      let take = capWithout;
+      const leftOver = remaining.length - take;
+      if (leftOver > 0 && leftOver < 3 && take > 5) {
+        take = take - (3 - leftOver);
+      }
+      pages.push(remaining.slice(0, take));
+      remaining = remaining.slice(take);
+      pIdx++;
+    }
+  }
+
+  const totalPages = pages.length;
+
+  const pdf = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
   });
 
-  payRows.push(['Total Paid', inr(totalPaid)]);
-  payRows.push(['Balance Due', inr(remaining)]);
+  const canvas = document.createElement('canvas');
+  canvas.width = PAGE_WIDTH;
+  canvas.height = PAGE_HEIGHT;
+  const ctx = canvas.getContext('2d');
 
-  const boxH = 14 + payRows.length * rowH + 12;
-
-  // Add page if not enough space
-  if (y + boxH > pageH - 18) {
-    doc.addPage();
-    y = 16;
+  if (!ctx) {
+    throw new Error('Canvas 2D context unavailable');
   }
 
-  // Box background
-  doc.setFillColor(...lightGray);
-  doc.setDrawColor(...borderGray);
-  doc.setLineWidth(0.4);
-  doc.roundedRect(boxX, y, boxW, boxH, 2, 2, 'FD');
+  // Multilingual strings
+  const L = {
+    title: isTa ? 'கேட்டரிங் ரசீது (INVOICE)' : 'CATERING INVOICE & BILL',
+    subtitle: isTa
+      ? 'சுபகாரியங்களுக்கான பாரம்பரிய சுத்த சைவ கேட்டரிங் சர்வீஸ்'
+      : 'Traditional Pure Vegetarian Feast & Catering Services',
+    badgeType: isTa ? 'வாடிக்கையாளர் ரசீது' : 'CUSTOMER INVOICE',
+    billTo: isTa ? 'வாடிக்கையாளர் விவரங்கள்' : 'CUSTOMER & BILLING DETAILS',
+    orderInfo: isTa ? 'ஆர்டர் & விசேஷ விவரங்கள்' : 'ORDER & FUNCTION DETAILS',
+    custName: isTa ? 'பெயர்:' : 'Customer Name:',
+    mobile: isTa ? 'கைப்பேசி:' : 'Mobile Number:',
+    address: isTa ? 'முகவரி / மண்டபம்:' : 'Event Address:',
+    guests: isTa ? 'நபர்கள் எண்ணிக்கை:' : 'Guests Count:',
+    orderNo: isTa ? 'ஆர்டர் எண்:' : 'Order ID:',
+    invDate: isTa ? 'ரசீது தேதி:' : 'Invoice Date:',
+    eventDate: isTa ? 'விசேஷ தேதி:' : 'Function Date:',
+    eventType: isTa ? 'நிகழ்ச்சி வகை:' : 'Event Type:',
+    tblSno: isTa ? 'வ.எண்' : 'S.No.',
+    tblDish: isTa ? 'உணவு வகை / பதார்த்தம்' : 'Food Item / Dish Name',
+    tblCat: isTa ? 'வகை (Category)' : 'Category',
+    summaryTitle: isTa ? 'கட்டண விவரங்கள் (PAYMENT SUMMARY)' : 'PAYMENT SUMMARY',
+    totalAmt: isTa ? 'மொத்த கட்டணம் (Total Amount):' : 'Total Amount:',
+    totalPaid: isTa ? 'செலுத்தப்பட்ட தொகை (Total Paid):' : 'Total Paid:',
+    balanceDue: isTa ? 'மீதமுள்ள தொகை (Balance Due):' : 'Balance Due:',
+    notesTitle: isTa ? 'குறிப்புகள் (Customer Notes):' : 'Special Instructions / Notes:',
+    thankYou: isTa
+      ? 'காஞ்சி அம்பாள் கேட்டரிங் சேவையைத் தேர்ந்தெடுத்தமைக்கு நன்றி! சுபநிகழ்ச்சி இனிதே அமைய வாழ்த்துகிறோம்.'
+      : 'Thank you for choosing Kanchi Ambal Catering! We wish you a wonderful and joyous celebration.',
+  };
 
-  // Box header stripe
-  doc.setFillColor(...primaryColor);
-  doc.roundedRect(boxX, y, boxW, 10, 2, 2, 'F');
-  doc.rect(boxX, y + 5, boxW, 5, 'F');
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(9);
-  doc.setFont('helvetica', 'bold');
-  doc.text('PAYMENT SUMMARY', boxX + boxW / 2, y + 7, { align: 'center' });
+  let runningItemOffset = 0;
 
-  const lx = boxX + 5;
-  const rx = boxX + boxW - 5;
-  let ry = y + 17;
+  for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
+    const pageItems = pages[pageIdx];
+    const startIdx = runningItemOffset;
+    runningItemOffset += pageItems.length;
 
-  doc.setTextColor(...darkColor);
-  doc.setFontSize(8.5);
-  for (const [label, val] of payRows) {
-    const isHighlight = label === 'Total Amount' || label === 'Total Paid' || label === 'Balance Due';
-    doc.setFont('helvetica', isHighlight ? 'bold' : 'normal');
-    doc.text(label, lx, ry);
-    doc.setFont('helvetica', 'bold');
-    doc.text(val, rx, ry, { align: 'right' });
-    doc.setDrawColor(...borderGray);
-    doc.setLineWidth(0.15);
-    doc.line(lx, ry + 2, rx, ry + 2);
-    ry += rowH;
+    // Clear background
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
+
+    // Decorative Borders
+    renderDecorativePageFrame(ctx, PAGE_WIDTH, PAGE_HEIGHT);
+
+    let y = 48;
+
+    if (pageIdx === 0) {
+      // ─── TOP HEADER (Page 1) ────────────────────────────────
+      y = renderDocumentHeader({
+        ctx,
+        pageWidth: PAGE_WIDTH,
+        y: 48,
+        headerHeight: 140,
+        language: lang,
+        logo,
+        bizName,
+        title: L.title,
+        subtitle: L.subtitle,
+        badgeType: L.badgeType,
+        docNumber: invoice.id,
+        statusOrDateLabel: `${formatDate(invoice.generatedAt, isTa)} • ${paymentStatus}`,
+        contactText: `Ph: +91 ${siteConfig.whatsappNumber}  •  Kanchipuram, Tamil Nadu`,
+      });
+
+      // ─── BILL TO & ORDER METADATA (Page 1) ──────────────────
+      const colW = (PAGE_WIDTH - 110) / 2;
+      const boxH = 124;
+
+      // Box 1: Customer Details
+      ctx.fillStyle = '#F8FAFC';
+      ctx.fillRect(45, y, colW, boxH);
+      ctx.strokeStyle = '#E2E8F0';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(45, y, colW, boxH);
+
+      ctx.fillStyle = BRAND_COLORS.darkNavy;
+      ctx.fillRect(45, y, colW, 26);
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = 'bold 12.5px "Noto Sans Tamil", "Inter", sans-serif';
+      ctx.fillText(L.billTo, 58, y + 18);
+
+      let cy = y + 46;
+      ctx.fillStyle = BRAND_COLORS.textBody;
+      ctx.font = 'bold 12px "Noto Sans Tamil", "Inter", sans-serif';
+      ctx.fillText(L.custName, 58, cy);
+      drawFittedText(ctx, order.customerName, 185, cy, colW - 195, 13, 11, '"Noto Sans Tamil", "Inter", sans-serif', 'bold', BRAND_COLORS.textDark, 'left');
+
+      cy += 24;
+      ctx.font = 'bold 12px "Noto Sans Tamil", "Inter", sans-serif';
+      ctx.fillStyle = BRAND_COLORS.textBody;
+      ctx.fillText(L.mobile, 58, cy);
+      ctx.font = '13px "Inter", sans-serif';
+      ctx.fillStyle = BRAND_COLORS.textDark;
+      ctx.fillText(order.mobile || '—', 185, cy);
+
+      if (order.eventAddress) {
+        cy += 24;
+        ctx.font = 'bold 12px "Noto Sans Tamil", "Inter", sans-serif';
+        ctx.fillStyle = BRAND_COLORS.textBody;
+        ctx.fillText(L.address, 58, cy);
+        drawFittedText(ctx, order.eventAddress, 185, cy, colW - 195, 12, 10, '"Noto Sans Tamil", "Inter", sans-serif', 'normal', BRAND_COLORS.textDark, 'left');
+      }
+
+      if (order.guestCount) {
+        cy += 24;
+        ctx.font = 'bold 12px "Noto Sans Tamil", "Inter", sans-serif';
+        ctx.fillStyle = BRAND_COLORS.textBody;
+        ctx.fillText(L.guests, 58, cy);
+        ctx.font = '12px "Noto Sans Tamil", "Inter", sans-serif';
+        ctx.fillStyle = BRAND_COLORS.textDark;
+        ctx.fillText(`${order.guestCount} ${isTa ? 'நபர்கள்' : 'Guests'}`, 185, cy);
+      }
+
+      // Box 2: Order & Function Details
+      const rightX = 45 + colW + 20;
+      ctx.fillStyle = '#F8FAFC';
+      ctx.fillRect(rightX, y, colW, boxH);
+      ctx.strokeStyle = '#E2E8F0';
+      ctx.strokeRect(rightX, y, colW, boxH);
+
+      ctx.fillStyle = BRAND_COLORS.darkNavy;
+      ctx.fillRect(rightX, y, colW, 26);
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = 'bold 12.5px "Noto Sans Tamil", "Inter", sans-serif';
+      ctx.fillText(L.orderInfo, rightX + 14, y + 18);
+
+      let dy = y + 46;
+      ctx.fillStyle = BRAND_COLORS.textBody;
+      ctx.font = 'bold 12px "Noto Sans Tamil", "Inter", sans-serif';
+      ctx.fillText(L.orderNo, rightX + 14, dy);
+      ctx.font = 'bold 13px "Inter", sans-serif';
+      ctx.fillStyle = BRAND_COLORS.primary;
+      ctx.fillText(order.id, rightX + 160, dy);
+
+      dy += 24;
+      ctx.font = 'bold 12px "Noto Sans Tamil", "Inter", sans-serif';
+      ctx.fillStyle = BRAND_COLORS.textBody;
+      ctx.fillText(L.invDate, rightX + 14, dy);
+      ctx.font = '12px "Inter", sans-serif';
+      ctx.fillStyle = BRAND_COLORS.textDark;
+      ctx.fillText(formatDate(invoice.generatedAt, isTa), rightX + 160, dy);
+
+      dy += 24;
+      ctx.font = 'bold 12px "Noto Sans Tamil", "Inter", sans-serif';
+      ctx.fillStyle = BRAND_COLORS.textBody;
+      ctx.fillText(L.eventDate, rightX + 14, dy);
+      ctx.font = '12px "Inter", sans-serif';
+      ctx.fillStyle = BRAND_COLORS.textDark;
+      ctx.fillText(formatDate(order.orderDate, isTa), rightX + 160, dy);
+
+      if (order.eventType) {
+        dy += 24;
+        ctx.font = 'bold 12px "Noto Sans Tamil", "Inter", sans-serif';
+        ctx.fillStyle = BRAND_COLORS.textBody;
+        ctx.fillText(L.eventType, rightX + 14, dy);
+        drawFittedText(ctx, order.eventType, rightX + 160, dy, colW - 170, 12, 10, '"Noto Sans Tamil", "Inter", sans-serif', 'normal', BRAND_COLORS.textDark, 'left');
+      }
+
+      y += boxH + 18;
+    } else {
+      // Compact header on subsequent pages
+      y = renderCompactDocumentHeader({
+        ctx,
+        pageWidth: PAGE_WIDTH,
+        y: 48,
+        language: lang,
+        logo,
+        bizName,
+        title: L.title,
+        docNumber: invoice.id,
+      });
+
+      // Continuation strip
+      ctx.fillStyle = '#F8FAFC';
+      ctx.fillRect(45, y, PAGE_WIDTH - 90, 32);
+      ctx.strokeStyle = '#E2E8F0';
+      ctx.strokeRect(45, y, PAGE_WIDTH - 90, 32);
+
+      ctx.fillStyle = BRAND_COLORS.textMuted;
+      ctx.font = 'bold 12px "Noto Sans Tamil", "Inter", sans-serif';
+      ctx.fillText(
+        `${bizName} — ${invoice.id} (${isTa ? 'பக்கம்' : 'Page'} ${pageIdx + 1} ${isTa ? '/' : 'of'} ${totalPages})`,
+        60,
+        y + 21
+      );
+
+      y += 42;
+    }
+
+    // ─── ITEMS TABLE ──────────────────────────────────────────
+    const tableW = PAGE_WIDTH - 90;
+    const colWidths = [70, 680, 400];
+    const colX = [45, 45 + colWidths[0], 45 + colWidths[0] + colWidths[1]];
+
+    // Table Header
+    ctx.fillStyle = BRAND_COLORS.primary;
+    ctx.fillRect(45, y, tableW, 36);
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 12px "Noto Sans Tamil", "Inter", sans-serif';
+    ctx.fillText(L.tblSno, colX[0] + 16, y + 23);
+    ctx.fillText(L.tblDish, colX[1] + 14, y + 23);
+    ctx.fillText(L.tblCat, colX[2] + 14, y + 23);
+
+    y += 36;
+
+    // Table Rows
+    for (let r = 0; r < pageItems.length; r++) {
+      const itm = pageItems[r];
+      const isAlt = r % 2 === 1;
+
+      ctx.fillStyle = isAlt ? '#F8FAFC' : '#FFFFFF';
+      ctx.fillRect(45, y, tableW, rowH);
+      ctx.strokeStyle = '#E2E8F0';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(45, y, tableW, rowH);
+
+      // S.No
+      ctx.fillStyle = BRAND_COLORS.textMuted;
+      ctx.font = 'bold 12px "Inter", sans-serif';
+      ctx.fillText(String(startIdx + r + 1), colX[0] + 20, y + 24);
+
+      // Dish Name (Fitted to width)
+      drawFittedText(
+        ctx,
+        itm.dishName,
+        colX[1] + 14,
+        y + 24,
+        colWidths[1] - 28,
+        13,
+        10,
+        '"Noto Sans Tamil", "Inter", sans-serif',
+        'bold',
+        BRAND_COLORS.textDark,
+        'left'
+      );
+
+      // Category Name
+      const catFormatted = (itm.categoryId || '')
+        .replace(/-/g, ' ')
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+      drawFittedText(
+        ctx,
+        catFormatted,
+        colX[2] + 14,
+        y + 24,
+        colWidths[2] - 28,
+        12,
+        10,
+        '"Noto Sans Tamil", "Inter", sans-serif',
+        'normal',
+        BRAND_COLORS.textBody,
+        'left'
+      );
+
+      y += rowH;
+    }
+
+    // ─── PAYMENT SUMMARY (Final Page Only) ───────────────────
+    if (pageIdx === totalPages - 1) {
+      y += 18;
+
+      const summaryCardW = 460;
+      const summaryCardX = PAGE_WIDTH - 45 - summaryCardW;
+
+      // Left Box: Special Notes & Thank You
+      const notesW = summaryCardX - 45 - 20;
+      if (order.notes && order.notes.trim()) {
+        ctx.fillStyle = '#FFF7ED';
+        roundRect(ctx, 45, y, notesW, 90, 8);
+        ctx.fill();
+        ctx.strokeStyle = BRAND_COLORS.borderWarm;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        ctx.fillStyle = BRAND_COLORS.primaryDark;
+        ctx.font = 'bold 12px "Noto Sans Tamil", "Inter", sans-serif';
+        ctx.fillText(`★ ${L.notesTitle}`, 58, y + 26);
+
+        ctx.fillStyle = BRAND_COLORS.textBody;
+        ctx.font = '12px "Noto Sans Tamil", "Inter", sans-serif';
+        const notesStr = order.notes.length > 180 ? order.notes.substring(0, 178) + '…' : order.notes;
+        ctx.fillText(notesStr, 58, y + 52);
+      }
+
+      // Thank You Message
+      ctx.fillStyle = BRAND_COLORS.textMuted;
+      ctx.font = 'italic 11.5px "Noto Sans Tamil", "Inter", sans-serif';
+      ctx.fillText(L.thankYou, 45, y + 120);
+
+      // Right Box: Financials Card
+      const payRows: [string, string, boolean][] = [
+        [L.totalAmt, formatInr(order.totalAmount), true],
+      ];
+
+      payments.forEach((p, idx) => {
+        const dStr = p.date ? formatDate(p.date, isTa) : '';
+        const payLabel = isTa
+          ? `முன்பணம் #${idx + 1} (${p.method}${dStr ? ' · ' + dStr : ''}):`
+          : `Payment #${idx + 1} (${p.method}${dStr ? ' · ' + dStr : ''}):`;
+        payRows.push([payLabel, formatInr(p.amount), false]);
+      });
+
+      payRows.push([L.totalPaid, formatInr(totalPaid), true]);
+      payRows.push([L.balanceDue, formatInr(balanceDue), true]);
+
+      const cardH = 34 + payRows.length * 24 + 36;
+      ctx.fillStyle = BRAND_COLORS.cardBg;
+      roundRect(ctx, summaryCardX, y, summaryCardW, cardH, 8);
+      ctx.fill();
+      ctx.strokeStyle = BRAND_COLORS.borderWarm;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Card Header
+      ctx.fillStyle = BRAND_COLORS.primary;
+      roundRect(ctx, summaryCardX, y, summaryCardW, 30, 8);
+      ctx.fill();
+      ctx.fillRect(summaryCardX, y + 16, summaryCardW, 14);
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = 'bold 12px "Noto Sans Tamil", "Inter", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(L.summaryTitle, summaryCardX + summaryCardW / 2, y + 20);
+      ctx.textAlign = 'left';
+
+      let py = y + 54;
+      for (const [label, val, isBold] of payRows) {
+        ctx.fillStyle = isBold ? BRAND_COLORS.textDark : BRAND_COLORS.textBody;
+        ctx.font = isBold ? 'bold 12px "Noto Sans Tamil", "Inter", sans-serif' : '11.5px "Noto Sans Tamil", "Inter", sans-serif';
+        ctx.fillText(label, summaryCardX + 18, py);
+
+        ctx.font = isBold ? 'bold 13px "Inter", sans-serif' : '12px "Inter", sans-serif';
+        ctx.fillStyle = isBold ? BRAND_COLORS.primary : BRAND_COLORS.textDark;
+        ctx.textAlign = 'right';
+        ctx.fillText(val, summaryCardX + summaryCardW - 18, py);
+        ctx.textAlign = 'left';
+
+        ctx.strokeStyle = '#E2E8F0';
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(summaryCardX + 18, py + 6);
+        ctx.lineTo(summaryCardX + summaryCardW - 18, py + 6);
+        ctx.stroke();
+
+        py += 24;
+      }
+
+      // Status Pill
+      const isSettled = balanceDue <= 0 && order.totalAmount > 0;
+      const statusBg = isSettled ? '#16A34A' : totalPaid > 0 ? '#EA580C' : '#DC2626';
+      ctx.fillStyle = statusBg;
+      roundRect(ctx, summaryCardX + 18, py + 2, summaryCardW - 36, 24, 6);
+      ctx.fill();
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = 'bold 12px "Inter", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(`STATUS: ${paymentStatus}`, summaryCardX + summaryCardW / 2, py + 18);
+      ctx.textAlign = 'left';
+    }
+
+    // ─── FOOTER ON EVERY PAGE ─────────────────────────────────
+    renderDocumentFooter({
+      ctx,
+      pageWidth: PAGE_WIDTH,
+      pageHeight: PAGE_HEIGHT,
+      language: lang,
+      currentPage: pageIdx + 1,
+      totalPages,
+      docNumber: invoice.id,
+      bizName,
+    });
+
+    // Convert Canvas to Image & Add to jsPDF
+    const pageDataUrl = canvas.toDataURL('image/jpeg', 0.95);
+    if (pageIdx > 0) {
+      pdf.addPage();
+    }
+    pdf.addImage(pageDataUrl, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
   }
 
-  // Status badge
-  const badgeColor: [number, number, number] =
-    remaining <= 0 && order.totalAmount > 0 ? [22, 163, 74] : totalPaid > 0 ? [234, 88, 12] : [220, 38, 38];
-  doc.setFillColor(...badgeColor);
-  doc.roundedRect(lx, ry + 1, boxW - 10, 8.5, 1.5, 1.5, 'F');
-  doc.setTextColor(255, 255, 255);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  doc.text(status, lx + (boxW - 10) / 2, ry + 6.5, { align: 'center' });
-
-  // ─── NOTES (left of payment box) ────────────────────────
-  if (order.notes && order.notes.trim()) {
-    const notesW = boxX - metaLeft - 8;
-    doc.setTextColor(...darkColor);
-    doc.setFontSize(9.5);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Notes:', metaLeft, y + 8);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    const wrapped = doc.splitTextToSize(order.notes, notesW);
-    doc.text(wrapped, metaLeft, y + 16);
-  }
-
-  y = y + boxH + 12;
-
-  // ─── THANK YOU ───────────────────────────────────────────
-  if (y < pageH - 30) {
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'italic');
-    doc.setTextColor(120, 120, 120);
-    doc.text('Thank you for your business! We wish you a wonderful event.', metaLeft, y);
-  }
-
-  // ─── FOOTER BAND ────────────────────────────────────────
-  const footerY = pageH - 12;
-  doc.setFillColor(...primaryColor);
-  doc.rect(0, footerY - 3, pageW, 15, 'F');
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(8);
-  doc.setFont('helvetica', 'normal');
-  doc.text(
-    `${bizName}  |  Ph: ${siteConfig.whatsappNumber}  |  Generated: ${new Date().toLocaleDateString('en-IN')}`,
-    pageW / 2,
-    footerY + 4,
-    { align: 'center' }
-  );
-
-  // ─── SAVE ───────────────────────────────────────────────
-  doc.save(`Kanchi-Ambal-Invoice-${invoice.id}.pdf`);
+  // Exact download filename
+  pdf.save(`Kanchi-Ambal-Invoice-${invoice.id}.pdf`);
 }

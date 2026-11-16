@@ -8,26 +8,22 @@ import type { KitchenOrderSheet } from '../types/admin';
 import { siteConfig, getBusinessName } from '../config/site';
 import { formatUnitLabel } from '../services/kitchenSheetService';
 import logoImg from '../assets/LOGO.png';
+import {
+  renderDocumentHeader,
+  renderCompactDocumentHeader,
+  renderDocumentFooter,
+  renderDecorativePageFrame,
+  ensureFontsReady,
+  loadImage,
+  drawFittedText,
+  COMPUTER_GENERATED_NOTICE,
+  PAGE_GEOMETRY,
+} from './documentHeaderFooter';
 
 function formatDate(isoDate: string): string {
   if (!isoDate) return '—';
   const d = new Date(isoDate.includes('T') ? isoDate : isoDate + 'T00:00:00');
   return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-}
-
-function loadImage(src: string): Promise<HTMLImageElement | null> {
-  return new Promise((resolve) => {
-    if (!src) {
-      resolve(null);
-      return;
-    }
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
-    img.src = src;
-    setTimeout(() => resolve(null), 2000);
-  });
 }
 
 /**
@@ -182,22 +178,28 @@ function generateEnglishVectorPDF(sheet: KitchenOrderSheet): void {
       }
 
       // Footer band on every page
-      const footerY = pageH - 10;
+      const footerY = pageH - 12;
       doc.setFillColor(241, 245, 249);
-      doc.rect(0, footerY - 2, pageW, 12, 'F');
+      doc.rect(0, footerY - 2, pageW, 14, 'F');
       doc.setDrawColor(...borderGray);
       doc.setLineWidth(0.2);
       doc.line(0, footerY - 2, pageW, footerY - 2);
 
+      // Computer-generated notice
       doc.setTextColor(...slate600);
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'italic');
+      doc.text(COMPUTER_GENERATED_NOTICE.en, pageW / 2, footerY + 3, { align: 'center' });
+
+      // Metadata & Page counter
       doc.setFontSize(7.5);
       doc.setFont('helvetica', 'normal');
       doc.text(
-        `Generated: ${new Date().toLocaleString('en-IN')}  |  Cooking Master Copy  |  Order: ${sheet.orderId}`,
+        `${getBusinessName('en')}  •  Ph: +91 ${siteConfig.whatsappNumber}  •  Order: ${sheet.orderId}`,
         14,
-        footerY + 4
+        footerY + 8
       );
-      doc.text(`Page ${data.pageNumber}`, pageW - 14, footerY + 4, { align: 'right' });
+      doc.text(`Page ${data.pageNumber}`, pageW - 14, footerY + 8, { align: 'right' });
     },
   });
 
@@ -262,8 +264,10 @@ async function generateTamilCanvasPDF(
   sheet: KitchenOrderSheet,
   includeEnglish = true
 ): Promise<void> {
-  const PAGE_WIDTH = 1240;
-  const PAGE_HEIGHT = 1754;
+  await ensureFontsReady();
+
+  const PAGE_WIDTH = PAGE_GEOMETRY.PAGE_WIDTH;
+  const PAGE_HEIGHT = PAGE_GEOMETRY.PAGE_HEIGHT;
 
   const logo = await loadImage(logoImg);
 
@@ -272,11 +276,11 @@ async function generateTamilCanvasPDF(
   const maxTableY = 1640;
   const footerBlocksH = sheet.cookingInstructions && sheet.cookingInstructions.trim() ? 150 : 90;
 
-  const p1StartY = 50 + 130 + 128 + 44; // 352
-  const p1CapWithBlocks = Math.floor((maxTableY - footerBlocksH - p1StartY) / rowHeight); // ~24
-  const p1CapWithoutBlocks = Math.floor((maxTableY - p1StartY) / rowHeight); // ~29
+  const p1StartY = 48 + 140 + 16 + 110 + 18 + 44; // 376
+  const p1CapWithBlocks = Math.floor((maxTableY - footerBlocksH - p1StartY) / rowHeight); // ~23
+  const p1CapWithoutBlocks = Math.floor((maxTableY - p1StartY) / rowHeight); // ~28
 
-  const pNextStartY = 50 + 130 + 50 + 44; // 274
+  const pNextStartY = 48 + 64 + 14 + 36 + 10 + 44; // 216
   const pNextCapWithBlocks = Math.floor((maxTableY - footerBlocksH - pNextStartY) / rowHeight); // ~27
   const pNextCapWithoutBlocks = Math.floor((maxTableY - pNextStartY) / rowHeight); // ~31
 
@@ -338,64 +342,29 @@ async function generateTamilCanvasPDF(
     ctx.fillRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
 
     // Decorative Borders
-    ctx.strokeStyle = '#F1F5F9';
-    ctx.lineWidth = 12;
-    ctx.strokeRect(20, 20, PAGE_WIDTH - 40, PAGE_HEIGHT - 40);
+    renderDecorativePageFrame(ctx, PAGE_WIDTH, PAGE_HEIGHT);
 
-    ctx.strokeStyle = '#EA580C';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(32, 32, PAGE_WIDTH - 64, PAGE_HEIGHT - 64);
+    let y = 48;
 
-    let y = 50;
-
-    // ─── HEADER BAND ──────────────────────────────────────
-    ctx.fillStyle = '#EA580C';
-    ctx.fillRect(45, y, PAGE_WIDTH - 90, 110);
-
-    // Accent stripe
-    ctx.fillStyle = '#F59E0B';
-    ctx.fillRect(45, y + 106, PAGE_WIDTH - 90, 4);
-
-    // Logo (if available)
-    if (logo) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(105, y + 55, 38, 0, Math.PI * 2);
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fill();
-      ctx.clip();
-      ctx.drawImage(logo, 67, y + 17, 76, 76);
-      ctx.restore();
-    }
-
-    // Business Name & Title
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 30px "Noto Sans Tamil", "Inter", sans-serif';
-    ctx.fillText(getBusinessName('ta'), 160, y + 42);
-
-    ctx.font = 'bold 18px "Noto Sans Tamil", "Inter", sans-serif';
-    ctx.fillStyle = '#FEF3C7';
-    ctx.fillText('சமையல் தயாரிப்பு பட்டியல் (KITCHEN ORDER SHEET)', 160, y + 72);
-
-    ctx.font = '14px "Noto Sans Tamil", "Inter", sans-serif';
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillText(`Ph: +91 ${siteConfig.whatsappNumber}  •  காஞ்சி அம்பாள் பாரம்பரிய கேட்டரிங் சர்வீஸ்`, 160, y + 96);
-
-    // Header Right: Order ID badge
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(PAGE_WIDTH - 270, y + 20, 210, 70);
-    ctx.fillStyle = '#9A3412';
-    ctx.font = 'bold 13px "Inter", sans-serif';
-    ctx.fillText('ORDER ID', PAGE_WIDTH - 250, y + 42);
-    ctx.font = 'bold 24px "Inter", sans-serif';
-    ctx.fillStyle = '#EA580C';
-    ctx.fillText(sheet.orderId, PAGE_WIDTH - 250, y + 74);
-
-    y += 130;
-
-    // ─── METADATA SECTION (Page 1 only or compact on subsequent) ──
     if (pageIdx === 0) {
-      // 2 columns
+      // ─── TOP HEADER (Page 1) ────────────────────────────────
+      y = renderDocumentHeader({
+        ctx,
+        pageWidth: PAGE_WIDTH,
+        y: 48,
+        headerHeight: 140,
+        language: 'ta',
+        logo,
+        bizName: getBusinessName('ta'),
+        title: 'சமையல் தயாரிப்பு பட்டியல் (KITCHEN ORDER SHEET)',
+        subtitle: 'காஞ்சி அம்பாள் பாரம்பரிய கேட்டரிங் சர்வீஸ்',
+        badgeType: 'KITCHEN SHEET',
+        docNumber: sheet.orderId,
+        statusOrDateLabel: `STATUS: ${sheet.status.toUpperCase()}`,
+        contactText: `Ph: +91 ${siteConfig.whatsappNumber}  •  Kanchipuram, Tamil Nadu`,
+      });
+
+      // ─── METADATA SECTION (Page 1) ──────────────────────────
       const colW = (PAGE_WIDTH - 110) / 2;
 
       // Card 1
@@ -443,9 +412,21 @@ async function generateTamilCanvasPDF(
       ctx.fillText(`தயாரிப்பு நிலை: ${sheet.status}`, card2X + 18, y + 80);
       ctx.fillText(`ஆர்டர் உருவாக்கப்பட்ட தேதி: ${formatDate(sheet.createdAt)}`, card2X + 18, y + 102);
 
-      y += 128;
+      y += 110 + 18;
     } else {
-      // Compact page header
+      // Compact page header on subsequent pages
+      y = renderCompactDocumentHeader({
+        ctx,
+        pageWidth: PAGE_WIDTH,
+        y: 48,
+        language: 'ta',
+        logo,
+        bizName: getBusinessName('ta'),
+        title: 'சமையல் தயாரிப்பு பட்டியல் (KITCHEN ORDER SHEET)',
+        docNumber: sheet.orderId,
+      });
+
+      // Continuation strip
       ctx.fillStyle = '#F8FAFC';
       ctx.fillRect(45, y, PAGE_WIDTH - 90, 36);
       ctx.strokeStyle = '#E2E8F0';
@@ -516,19 +497,41 @@ async function generateTamilCanvasPDF(
       x += colWidths[0];
 
       // Col 2: Dish Name
-      ctx.fillStyle = '#0F172A';
-      ctx.font = 'bold 14px "Noto Sans Tamil", "Inter", sans-serif';
-
+      const maxDishW = colWidths[1] - 20;
       const tamilName = item.dishNameTa || '';
       if (includeEnglish && tamilName) {
-        ctx.fillText(tamilName, x + 12, rowY + 20);
+        drawFittedText(
+          ctx,
+          tamilName,
+          x + 12,
+          rowY + 20,
+          maxDishW,
+          14,
+          10,
+          '"Noto Sans Tamil", "Inter", sans-serif',
+          'bold',
+          '#0F172A',
+          'left'
+        );
         ctx.fillStyle = '#64748B';
         ctx.font = '12px "Inter", sans-serif';
         const truncatedEn = item.dishName.length > 32 ? item.dishName.substring(0, 30) + '…' : item.dishName;
         ctx.fillText(truncatedEn, x + 12, rowY + 36);
       } else {
         const displayName = tamilName || item.dishName;
-        ctx.fillText(displayName, x + 12, rowY + 28);
+        drawFittedText(
+          ctx,
+          displayName,
+          x + 12,
+          rowY + 28,
+          maxDishW,
+          14,
+          10,
+          '"Noto Sans Tamil", "Inter", sans-serif',
+          'bold',
+          '#0F172A',
+          'left'
+        );
       }
       x += colWidths[1];
 
@@ -605,21 +608,16 @@ async function generateTamilCanvasPDF(
     }
 
     // ─── FOOTER ─────────────────────────────────────────────
-    const footerY = PAGE_HEIGHT - 65;
-    ctx.fillStyle = '#E2E8F0';
-    ctx.fillRect(45, footerY, PAGE_WIDTH - 90, 1);
-
-    ctx.fillStyle = '#64748B';
-    ctx.font = '12px "Noto Sans Tamil", "Inter", sans-serif';
-    ctx.fillText(
-      `${getBusinessName('ta')}  •  Ph: ${siteConfig.whatsappNumber}  •  சமையல் மாஸ்டர் நகல் (Master Cooking Copy)  •  ${sheet.orderId}`,
-      45,
-      footerY + 24
-    );
-
-    ctx.font = 'bold 12px "Inter", sans-serif';
-    ctx.fillStyle = '#EA580C';
-    ctx.fillText(`பக்கம் ${pageIdx + 1} / ${totalPages}`, PAGE_WIDTH - 140, footerY + 24);
+    renderDocumentFooter({
+      ctx,
+      pageWidth: PAGE_WIDTH,
+      pageHeight: PAGE_HEIGHT,
+      language: 'ta',
+      currentPage: pageIdx + 1,
+      totalPages,
+      docNumber: sheet.orderId,
+      bizName: getBusinessName('ta'),
+    });
 
     // Add canvas to jsPDF
     const pageDataUrl = canvas.toDataURL('image/jpeg', 0.95);

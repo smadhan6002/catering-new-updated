@@ -10,21 +10,17 @@ import type { InventoryDocument, InventoryDocumentItem } from '../types/inventor
 import { siteConfig, getBusinessName } from '../config/site';
 import { formatUnitLabel } from '../services/inventoryService';
 import logoImg from '../assets/LOGO.png';
-
-function loadImage(src: string): Promise<HTMLImageElement | null> {
-  return new Promise((resolve) => {
-    if (!src) {
-      resolve(null);
-      return;
-    }
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
-    img.src = src;
-    setTimeout(() => resolve(null), 2000);
-  });
-}
+import {
+  renderDocumentHeader,
+  renderCompactDocumentHeader,
+  renderDocumentFooter,
+  renderDecorativePageFrame,
+  ensureFontsReady,
+  loadImage,
+  drawFittedText,
+  getComputerGeneratedNotice,
+  PAGE_GEOMETRY,
+} from './documentHeaderFooter';
 
 function formatDate(isoDate?: string, isTa = false): string {
   if (!isoDate) return '—';
@@ -52,12 +48,14 @@ export async function generateInventoryPDF(
 ): Promise<void> {
   onProgress?.(10, 'Preparing inventory document layout…');
 
+  await ensureFontsReady();
+
   const isTa = language === 'ta';
   const logo = await loadImage(logoImg);
 
   // A4 dimensions at 2x resolution for ultra-crisp print quality (1240 x 1754 px)
-  const PAGE_WIDTH = 1240;
-  const PAGE_HEIGHT = 1754;
+  const PAGE_WIDTH = PAGE_GEOMETRY.PAGE_WIDTH;
+  const PAGE_HEIGHT = PAGE_GEOMETRY.PAGE_HEIGHT;
 
   const hasAnyPrice = doc.items.some((it) => it.unitPrice !== undefined && it.unitPrice > 0);
   const hasNotes = Boolean(doc.notes && doc.notes.trim());
@@ -67,15 +65,15 @@ export async function generateInventoryPDF(
   const maxTableY = 1640;
   const summaryH = hasAnyPrice ? 120 : 95;
 
-  // Page 1 capacities
-  const p1StartY = 48 + 132 + 94 + (hasNotes ? 44 : 0) + 36; // 310 or 354
+  // Page 1 capacities (account for 140px standard header + event details box)
+  const p1StartY = 48 + 140 + 16 + 78 + 16 + (hasNotes ? 44 : 0) + 36; // 334 or 378
   const p1CapacityWithSummary = Math.floor((maxTableY - summaryH - p1StartY) / rowHeight); // ~28-32 items
   const p1CapacityWithoutSummary = Math.floor((maxTableY - p1StartY) / rowHeight); // ~34-37 items
 
-  // Subsequent page capacities
-  const pNextStartY = 48 + 132 + 44 + 36; // 260
-  const pNextCapacityWithSummary = Math.floor((maxTableY - summaryH - pNextStartY) / rowHeight); // ~34-36 items
-  const pNextCapacityWithoutSummary = Math.floor((maxTableY - pNextStartY) / rowHeight); // ~38-40 items
+  // Subsequent page capacities (account for 64px compact header + continuation banner)
+  const pNextStartY = 48 + 64 + 14 + 32 + 10 + 36; // 204
+  const pNextCapacityWithSummary = Math.floor((maxTableY - summaryH - pNextStartY) / rowHeight);
+  const pNextCapacityWithoutSummary = Math.floor((maxTableY - pNextStartY) / rowHeight);
 
   // Partition items into pages dynamically
   const pages: InventoryDocumentItem[][] = [];
@@ -168,77 +166,35 @@ export async function generateInventoryPDF(
     runningItemIndex += pageItems.length;
 
     // 1. Background fill
+    // 1. Background fill
     ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
 
     // 2. Decorative double border (Warm orange theme)
-    ctx.strokeStyle = '#FFF7ED';
-    ctx.lineWidth = 14;
-    ctx.strokeRect(20, 20, PAGE_WIDTH - 40, PAGE_HEIGHT - 40);
+    renderDecorativePageFrame(ctx, PAGE_WIDTH, PAGE_HEIGHT);
 
-    ctx.strokeStyle = '#EA580C';
-    ctx.lineWidth = 2.5;
-    ctx.strokeRect(32, 32, PAGE_WIDTH - 64, PAGE_HEIGHT - 64);
-
+    const bizName = getBusinessName(language);
     let y = 48;
 
-    // 3. Header Band
-    ctx.fillStyle = '#EA580C';
-    ctx.fillRect(45, y, PAGE_WIDTH - 90, 115);
-
-    // Accent gold stripe
-    ctx.fillStyle = '#F59E0B';
-    ctx.fillRect(45, y + 111, PAGE_WIDTH - 90, 4);
-
-    // Logo
-    if (logo) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(110, y + 58, 42, 0, Math.PI * 2);
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fill();
-      ctx.clip();
-      ctx.drawImage(logo, 68, y + 16, 84, 84);
-      ctx.restore();
-    }
-
-    // Business Header Info
-    const bizName = getBusinessName(language);
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 30px "Noto Sans Tamil", "Inter", sans-serif';
-    ctx.fillText(bizName, 175, y + 42);
-
-    ctx.font = 'bold 16px "Noto Sans Tamil", "Inter", sans-serif';
-    ctx.fillStyle = '#FEF3C7';
-    ctx.fillText(L.title, 175, y + 72);
-
-    ctx.font = '13px "Noto Sans Tamil", "Inter", sans-serif';
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillText(`Ph: +91 ${siteConfig.whatsappNumber}  •  ${L.tagline}`, 175, y + 96);
-
-    // Document Meta Badge on Header Right
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(PAGE_WIDTH - 290, y + 16, 230, 80);
-    ctx.strokeStyle = '#FED7AA';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(PAGE_WIDTH - 290, y + 16, 230, 80);
-
-    ctx.fillStyle = '#9A3412';
-    ctx.font = 'bold 11px "Inter", sans-serif';
-    ctx.fillText('DOCUMENT NO.', PAGE_WIDTH - 275, y + 36);
-
-    ctx.fillStyle = '#EA580C';
-    ctx.font = 'bold 18px "Inter", sans-serif';
-    ctx.fillText(doc.docNumber, PAGE_WIDTH - 275, y + 58);
-
-    ctx.fillStyle = '#64748B';
-    ctx.font = '11px "Noto Sans Tamil", "Inter", sans-serif';
-    ctx.fillText(`${L.docDate}: ${formatDate(doc.documentDate, isTa)}`, PAGE_WIDTH - 275, y + 80);
-
-    y += 132;
-
-    // 4. Event / Function Details Section (Shown prominently on Page 1)
+    // 3. Header & Details Section
     if (pageIdx === 0) {
+      y = renderDocumentHeader({
+        ctx,
+        pageWidth: PAGE_WIDTH,
+        y: 48,
+        headerHeight: 140,
+        language,
+        logo,
+        bizName,
+        title: L.title,
+        subtitle: L.tagline,
+        badgeType: isTa ? 'கொள்முதல் பட்டியல்' : 'PURCHASE LIST',
+        docNumber: doc.docNumber,
+        statusOrDateLabel: `${L.docDate}: ${formatDate(doc.documentDate, isTa)}`,
+        contactText: `Ph: +91 ${siteConfig.whatsappNumber}  •  Kanchipuram, Tamil Nadu`,
+      });
+
+      // 4. Event / Function Details Section (Shown prominently on Page 1)
       ctx.fillStyle = '#FAFAFA';
       ctx.fillRect(45, y, PAGE_WIDTH - 90, 78);
       ctx.strokeStyle = '#FED7AA';
@@ -294,7 +250,19 @@ export async function generateInventoryPDF(
         y += 44;
       }
     } else {
-      // Continuation header on subsequent pages
+      // Compact header on subsequent pages
+      y = renderCompactDocumentHeader({
+        ctx,
+        pageWidth: PAGE_WIDTH,
+        y: 48,
+        language,
+        logo,
+        bizName,
+        title: L.title,
+        docNumber: doc.docNumber,
+      });
+
+      // Continuation strip
       ctx.fillStyle = '#F8FAFC';
       ctx.fillRect(45, y, PAGE_WIDTH - 90, 32);
       ctx.strokeStyle = '#E2E8F0';
@@ -303,12 +271,12 @@ export async function generateInventoryPDF(
       ctx.fillStyle = '#64748B';
       ctx.font = 'bold 12px "Noto Sans Tamil", "Inter", sans-serif';
       ctx.fillText(
-        `${doc.title} — ${doc.eventName}  (${L.page} ${pageIdx + 1} ${L.of} ${totalPages})`,
+        `${doc.title || L.title} — ${doc.eventName || ''}  (${L.page} ${pageIdx + 1} ${L.of} ${totalPages})`,
         60,
         y + 21
       );
 
-      y += 44;
+      y += 42;
     }
 
     // 5. Items Table
@@ -391,12 +359,20 @@ export async function generateInventoryPDF(
         ctx.fillText(String(globalIdx), colCurX + 30, y + 23);
         colCurX += cols[0].width;
 
-        // 2. Item Name
-        ctx.fillStyle = '#0F172A';
-        ctx.font = 'bold 13px "Noto Sans Tamil", "Inter", sans-serif';
-        ctx.textAlign = 'left';
-        const truncName = itemName.length > 28 ? itemName.substring(0, 26) + '…' : itemName;
-        ctx.fillText(truncName, colCurX + 12, y + 23);
+        // 2. Item Name (Auto-fitted so it never overflows)
+        drawFittedText(
+          ctx,
+          itemName,
+          colCurX + 12,
+          y + 23,
+          cols[1].width - 20,
+          13,
+          10,
+          '"Noto Sans Tamil", "Inter", sans-serif',
+          'bold',
+          '#0F172A',
+          'left'
+        );
         colCurX += cols[1].width;
 
         // 3. Category
@@ -439,11 +415,20 @@ export async function generateInventoryPDF(
         ctx.fillText(String(globalIdx), colCurX + 35, y + 23);
         colCurX += cols[0].width;
 
-        // 2. Item Name
-        ctx.fillStyle = '#0F172A';
-        ctx.font = 'bold 14px "Noto Sans Tamil", "Inter", sans-serif';
-        ctx.textAlign = 'left';
-        ctx.fillText(itemName, colCurX + 16, y + 23);
+        // 2. Item Name (Auto-fitted so it never overflows)
+        drawFittedText(
+          ctx,
+          itemName,
+          colCurX + 16,
+          y + 23,
+          cols[1].width - 24,
+          14,
+          10,
+          '"Noto Sans Tamil", "Inter", sans-serif',
+          'bold',
+          '#0F172A',
+          'left'
+        );
         colCurX += cols[1].width;
 
         // 3. Category
@@ -513,23 +498,16 @@ export async function generateInventoryPDF(
     }
 
     // 7. Page Footer
-    const footerY = PAGE_HEIGHT - 65;
-    ctx.fillStyle = '#E2E8F0';
-    ctx.fillRect(45, footerY, PAGE_WIDTH - 90, 1);
-
-    ctx.fillStyle = '#64748B';
-    ctx.font = '11px "Noto Sans Tamil", "Inter", sans-serif';
-    ctx.fillText(
-      `${bizName}  •  Ph: +91 ${siteConfig.whatsappNumber}  •  ${isTa ? 'மளிகைப் பொருட்கள் துறை' : 'Grocery & Vegetable Department'}`,
-      45,
-      footerY + 22
-    );
-
-    ctx.font = 'bold 12px "Inter", sans-serif';
-    ctx.fillStyle = '#EA580C';
-    ctx.textAlign = 'right';
-    ctx.fillText(`${L.page} ${pageIdx + 1} ${L.of} ${totalPages}`, PAGE_WIDTH - 45, footerY + 22);
-    ctx.textAlign = 'left';
+    renderDocumentFooter({
+      ctx,
+      pageWidth: PAGE_WIDTH,
+      pageHeight: PAGE_HEIGHT,
+      language,
+      currentPage: pageIdx + 1,
+      totalPages,
+      docNumber: doc.docNumber,
+      bizName,
+    });
 
     // Convert canvas to image and add to PDF
     const imgData = canvas.toDataURL('image/jpeg', 0.94);
@@ -604,8 +582,13 @@ export function printInventoryDocument(doc: InventoryDocument, language: 'en' | 
           display: flex;
           justify-content: space-between;
           align-items: flex-start;
+          gap: 20px;
           page-break-inside: avoid;
           break-inside: avoid;
+        }
+        .header-left {
+          flex: 1;
+          max-width: 68%;
         }
         .brand {
           font-size: 22px;
@@ -626,6 +609,7 @@ export function printInventoryDocument(doc: InventoryDocument, language: 'en' | 
         .meta-box {
           text-align: right;
           font-size: 12px;
+          min-width: 200px;
         }
         .meta-badge {
           display: inline-block;
@@ -718,7 +702,7 @@ export function printInventoryDocument(doc: InventoryDocument, language: 'en' | 
     </head>
     <body>
       <div class="header">
-        <div>
+        <div class="header-left">
           <div class="brand">${getBusinessName(language)}</div>
           <div class="sub">${isTa ? siteConfig.name : siteConfig.tamilName} • Ph: +91 ${siteConfig.whatsappNumber}</div>
           <div class="doc-title">${isTa ? 'மளிகைப் பொருட்கள் & காய்கறி கொள்முதல் பட்டியல்' : 'Grocery & Vegetable Purchase / Stock List'}</div>
@@ -784,6 +768,10 @@ export function printInventoryDocument(doc: InventoryDocument, language: 'en' | 
               : ''
           }
         </div>
+      </div>
+
+      <div class="computer-notice" style="margin-top: 22px; padding-top: 10px; border-top: 1px dashed #cbd5e1; text-align: center; font-size: 11px; color: #475569; font-style: italic;">
+        ${getComputerGeneratedNotice(language)}
       </div>
 
       <script>

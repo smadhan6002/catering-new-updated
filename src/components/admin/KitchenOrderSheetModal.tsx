@@ -638,10 +638,10 @@ export const KitchenOrderSheetModal: React.FC<KitchenOrderSheetModalProps> = ({
               <div className="flex justify-center">
                 <div className="w-full max-w-3xl bg-white shadow-xl rounded-2xl border border-slate-200 overflow-hidden print:shadow-none print:border-none p-6 sm:p-8 space-y-6">
                   {/* Business Header */}
-                  <div className="flex items-start justify-between border-b-2 border-primary pb-4">
-                    <div className="flex items-center gap-3.5">
-                      <img src={logoImg} alt={siteConfig.name} className="w-14 h-14 object-contain rounded-xl" />
-                      <div>
+                  <div className="flex items-start justify-between border-b-2 border-primary pb-4 gap-4">
+                    <div className="flex items-center gap-3.5 max-w-[70%]">
+                      <img src={logoImg} alt={siteConfig.name} className="w-14 h-14 object-contain rounded-xl shrink-0" />
+                      <div className="min-w-0">
                         <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
                           {siteConfig.name}
                         </h2>
@@ -655,7 +655,7 @@ export const KitchenOrderSheetModal: React.FC<KitchenOrderSheetModalProps> = ({
                         </p>
                       </div>
                     </div>
-                    <div className="text-right">
+                    <div className="text-right shrink-0">
                       <div className="bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-xl">
                         <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-bold">
                           Order ID
@@ -769,6 +769,13 @@ export const KitchenOrderSheetModal: React.FC<KitchenOrderSheetModalProps> = ({
                     <div className="border-t border-slate-300 pt-2 font-medium">
                       Verified & Dispatched
                     </div>
+                  </div>
+
+                  {/* Computer-generated document notice */}
+                  <div className="pt-3 border-t border-dashed border-slate-200 text-center text-[11px] text-slate-500 italic">
+                    {selectedLanguage === 'ta'
+                      ? 'இது காஞ்சி அம்பாள் கேட்டரிங் இணையதளம் மூலம் கணினியில் உருவாக்கப்பட்ட ஆவணமாகும். கையொப்பம் தேவையில்லை.'
+                      : 'This is a computer-generated document from Kanchi Ambal Catering. No handwritten signature is required.'}
                   </div>
                 </div>
               </div>

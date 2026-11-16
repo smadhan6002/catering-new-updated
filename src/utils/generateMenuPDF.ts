@@ -4,6 +4,14 @@ import { dishService } from '../services/dishService';
 import { siteConfig, getBusinessName } from '../config/site';
 import { ta } from '../locales/ta';
 import logoImg from '../assets/LOGO.png';
+import {
+  renderDocumentFooter,
+  renderDecorativePageFrame,
+  ensureFontsReady,
+  loadImage,
+  drawFittedText,
+  PAGE_GEOMETRY,
+} from './documentHeaderFooter';
 
 interface MenuPageDish {
   id: string;
@@ -20,21 +28,6 @@ interface MenuPageCategory {
   name: string;
   nameTa: string;
   dishes: MenuPageDish[];
-}
-
-function loadImage(src: string): Promise<HTMLImageElement | null> {
-  return new Promise((resolve) => {
-    if (!src) {
-      resolve(null);
-      return;
-    }
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
-    img.src = src;
-    setTimeout(() => resolve(null), 2000);
-  });
 }
 
 /**
@@ -101,6 +94,9 @@ export async function generateMenuPDF(
   language: 'en' | 'ta' = 'en'
 ): Promise<void> {
   onProgress?.(10, 'Compiling menu items…');
+
+  await ensureFontsReady();
+
   const isTa = language === 'ta';
   const bizName = getBusinessName(language);
 
@@ -125,8 +121,8 @@ export async function generateMenuPDF(
   onProgress?.(50, 'Designing PDF pages…');
 
   // Canvas A4 dimensions at 2x resolution (1240 x 1754 px)
-  const PAGE_WIDTH = 1240;
-  const PAGE_HEIGHT = 1754;
+  const PAGE_WIDTH = PAGE_GEOMETRY.PAGE_WIDTH;
+  const PAGE_HEIGHT = PAGE_GEOMETRY.PAGE_HEIGHT;
 
   // Distribute categories dynamically based on actual rendered pixel height
   const pagesData: MenuPageCategory[][] = [];
@@ -178,16 +174,10 @@ export async function generateMenuPDF(
     ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
 
-    // Subtle page border
-    ctx.strokeStyle = '#F1F5F9';
-    ctx.lineWidth = 12;
-    ctx.strokeRect(20, 20, PAGE_WIDTH - 40, PAGE_HEIGHT - 40);
+    // Decorative Borders
+    renderDecorativePageFrame(ctx, PAGE_WIDTH, PAGE_HEIGHT);
 
-    ctx.strokeStyle = '#EA580C';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(32, 32, PAGE_WIDTH - 64, PAGE_HEIGHT - 64);
-
-    let y = 60;
+    let y = 48;
 
     // Header Band
     if (pageIdx === 0) {
@@ -211,24 +201,53 @@ export async function generateMenuPDF(
         ctx.restore();
       }
 
-      // Title & Contact Info
-      ctx.fillStyle = '#FFFFFF';
-      ctx.font = 'bold 36px "Noto Sans Tamil", "Inter", "Segoe UI", sans-serif';
-      ctx.fillText(bizName, 200, y + 60);
-
-      ctx.font = 'bold 20px "Noto Sans Tamil", "Latha", sans-serif';
-      ctx.fillStyle = '#FEF3C7';
-      ctx.fillText(
-        isTa ? `${siteConfig.name} • பாரம்பரிய கேட்டரிங் மெனு பட்டியல்` : 'காஞ்சி அம்பாள் பாரம்பரிய கேட்டரிங் மெனு பட்டியல்',
+      // Title & Contact Info (Guaranteed fitting without clipping)
+      drawFittedText(
+        ctx,
+        bizName,
         200,
-        y + 92
+        y + 56,
+        PAGE_WIDTH - 260,
+        34,
+        22,
+        '"Noto Sans Tamil", "Inter", sans-serif',
+        'bold',
+        '#FFFFFF',
+        'left'
       );
 
-      ctx.font = '16px "Inter", "Segoe UI", sans-serif';
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fillText(`Ph: +91 ${siteConfig.whatsappNumber}  |  Kanchipuram, Tamil Nadu`, 200, y + 125);
+      const menuTitle = isTa
+        ? `${siteConfig.name} • பாரம்பரிய கேட்டரிங் மெனு பட்டியல்`
+        : 'காஞ்சி அம்பாள் பாரம்பரிய கேட்டரிங் மெனு பட்டியல் (FOOD MENU)';
+      drawFittedText(
+        ctx,
+        menuTitle,
+        200,
+        y + 90,
+        PAGE_WIDTH - 260,
+        18,
+        13,
+        '"Noto Sans Tamil", "Inter", sans-serif',
+        'bold',
+        '#FEF3C7',
+        'left'
+      );
 
-      y += 185;
+      drawFittedText(
+        ctx,
+        `Ph: +91 ${siteConfig.whatsappNumber}  •  Kanchipuram, Tamil Nadu  •  Traditional Pure Vegetarian`,
+        200,
+        y + 122,
+        PAGE_WIDTH - 260,
+        14,
+        11,
+        '"Inter", "Noto Sans Tamil", sans-serif',
+        'normal',
+        '#FFFFFF',
+        'left'
+      );
+
+      y += 180;
 
       // Menu Title Banner
       ctx.fillStyle = '#FFF7ED';
@@ -238,24 +257,47 @@ export async function generateMenuPDF(
       ctx.strokeRect(45, y, PAGE_WIDTH - 90, 48);
 
       ctx.fillStyle = '#9A3412';
-      ctx.font = 'bold 18px "Inter", "Segoe UI", sans-serif';
-      ctx.fillText('★ PURE VEGETARIAN CATERING SERVICES  |  FOOD MENU SELECTIONS ★', PAGE_WIDTH / 2 - 290, y + 30);
+      ctx.font = 'bold 16px "Noto Sans Tamil", "Inter", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(
+        isTa
+          ? '★ சுபகாரியங்களுக்கான சிறப்பு சைவ உணவு மெனு தேர்வுகள் ★'
+          : '★ PURE VEGETARIAN CATERING SERVICES  |  FOOD MENU SELECTIONS ★',
+        PAGE_WIDTH / 2,
+        y + 30
+      );
+      ctx.textAlign = 'left';
 
-      y += 70;
+      y += 66;
     } else {
       // Compact Header for Subsequent Pages
       ctx.fillStyle = '#EA580C';
-      ctx.fillRect(45, y, PAGE_WIDTH - 90, 60);
+      ctx.fillRect(45, y, PAGE_WIDTH - 90, 54);
 
-      ctx.fillStyle = '#FFFFFF';
-      ctx.font = 'bold 24px "Noto Sans Tamil", "Inter", "Segoe UI", sans-serif';
-      ctx.fillText(bizName, 65, y + 40);
+      ctx.fillStyle = '#F59E0B';
+      ctx.fillRect(45, y + 51, PAGE_WIDTH - 90, 3);
 
-      ctx.font = '16px "Inter", "Segoe UI", sans-serif';
+      drawFittedText(
+        ctx,
+        `${bizName}  •  ${isTa ? 'மெனு பட்டியல்' : 'Food Menu Catalog'}`,
+        65,
+        y + 34,
+        PAGE_WIDTH - 360,
+        20,
+        14,
+        '"Noto Sans Tamil", "Inter", sans-serif',
+        'bold',
+        '#FFFFFF',
+        'left'
+      );
+
+      ctx.font = '14px "Inter", sans-serif';
       ctx.fillStyle = '#FEF3C7';
-      ctx.fillText(`Ph: +91 ${siteConfig.whatsappNumber}`, PAGE_WIDTH - 250, y + 40);
+      ctx.textAlign = 'right';
+      ctx.fillText(`Ph: +91 ${siteConfig.whatsappNumber}`, PAGE_WIDTH - 65, y + 34);
+      ctx.textAlign = 'left';
 
-      y += 85;
+      y += 72;
     }
 
     // Categories on this page
@@ -346,21 +388,16 @@ export async function generateMenuPDF(
     }
 
     // Page Footer
-    const footerY = PAGE_HEIGHT - 65;
-    ctx.fillStyle = '#E2E8F0';
-    ctx.fillRect(45, footerY, PAGE_WIDTH - 90, 1);
-
-    ctx.fillStyle = '#64748B';
-    ctx.font = '12px "Noto Sans Tamil", "Inter", "Segoe UI", sans-serif';
-    ctx.fillText(
-      `${bizName}  •  Ph: ${siteConfig.whatsappNumber}  •  ${isTa ? 'சுவையான, சுகாதாரமான பாரம்பரிய விருந்து' : 'Delicious, Hygienic, Authentic Feast'}`,
-      45,
-      footerY + 22
-    );
-
-    ctx.font = 'bold 12px "Inter", "Segoe UI", sans-serif';
-    ctx.fillStyle = '#EA580C';
-    ctx.fillText(`Page ${pageIdx + 1} of ${totalPages}`, PAGE_WIDTH - 140, footerY + 22);
+    renderDocumentFooter({
+      ctx,
+      pageWidth: PAGE_WIDTH,
+      pageHeight: PAGE_HEIGHT,
+      language,
+      currentPage: pageIdx + 1,
+      totalPages,
+      docNumber: 'MENU-CATALOG',
+      bizName,
+    });
 
     // Convert canvas to image data and add to jsPDF
     const pageDataUrl = canvas.toDataURL('image/jpeg', 0.92);

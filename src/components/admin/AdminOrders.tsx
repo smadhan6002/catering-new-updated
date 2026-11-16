@@ -297,10 +297,13 @@ const OrderDetail: React.FC<OrderDetailProps> = ({ order: initialOrder, onClose,
     setDownloadingInvoice(true);
     try {
       const inv = await invoiceService.create(order.id);
-      generateInvoicePDF(order, inv);
+      await generateInvoicePDF(order, inv);
       orderService.markInvoiceGenerated(order.id);
       onUpdated();
       showToast('Invoice generated and downloaded.');
+    } catch (err) {
+      console.error('Invoice PDF error:', err);
+      showToast('Failed to generate invoice PDF.');
     } finally {
       setTimeout(() => setDownloadingInvoice(false), 1000);
     }
