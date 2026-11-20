@@ -62,12 +62,22 @@ export const InquiryFormModal: React.FC<InquiryFormModalProps> = ({ isOpen, onCl
     setSubmitError(null);
 
     try {
-      // Map cart items into snapshot order items
-      const orderItems: OrderItem[] = cartItems.map((item) => ({
-        dishId: item.id,
-        dishName: item.name,   // snapshot — safe even if dish is later renamed/deleted
-        categoryId: item.categoryId,
-      }));
+      // Map cart items into snapshot order items with full customization breakdown
+      const orderItems: OrderItem[] = cartItems.map((item) => {
+        let notes: string | undefined = undefined;
+        if (item.customization && item.customization.selectedItems.length > 0) {
+          const names = item.customization.selectedItems
+            .map((d) => (t.lang === 'ta' && d.dishNameTa ? d.dishNameTa : d.dishName))
+            .join(', ');
+          notes = `Customized (${item.customization.selectedItems.length} items): ${names}`;
+        }
+        return {
+          dishId: item.id,
+          dishName: item.name,   // snapshot — safe even if dish is later renamed/deleted
+          categoryId: item.categoryId,
+          notes,
+        };
+      });
 
       // Find or create customer record
       const customer = customerService.findOrCreateFromOrder({

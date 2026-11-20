@@ -12,6 +12,7 @@ import { CartDrawer } from './components/CartDrawer';
 import { RiceSuggestionModal } from './components/RiceSuggestionModal';
 import { Footer } from './components/Footer';
 import { FoodImageDisclaimer } from './components/FoodImageDisclaimer';
+import { updatePageSEO } from './utils/seo';
 import logoImg from './assets/LOGO.png';
 
 const AdminPage = lazy(() =>
@@ -112,6 +113,10 @@ function AdminLoginButton() {
 function MainApp() {
   const { lang, businessName } = useLanguage();
   const [activeCategory, setActiveCategory] = React.useState(categories[0].id);
+
+  React.useEffect(() => {
+    updatePageSEO('/', lang === 'ta');
+  }, [lang]);
 
   React.useEffect(() => {
     const observer = new IntersectionObserver(

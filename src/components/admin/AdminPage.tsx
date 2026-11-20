@@ -5,6 +5,7 @@ import { AdminSidebar, AdminTopbar } from './AdminSidebar';
 import type { AdminView } from './AdminSidebar';
 import { ChefHat } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
+import { updatePageSEO } from '../../utils/seo';
 
 const AdminDashboard = lazy(() => import('./AdminDashboard').then((m) => ({ default: m.AdminDashboard })));
 const AdminDishes = lazy(() => import('./AdminDishes').then((m) => ({ default: m.AdminDishes })));
@@ -21,12 +22,17 @@ const AdminInventory = lazy(() => import('./AdminInventory').then((m) => ({ defa
 const AdminSettings = lazy(() => import('./AdminSettings').then((m) => ({ default: m.AdminSettings })));
 
 export const AdminPage: React.FC = () => {
-  const { businessName } = useLanguage();
+  const { businessName, lang } = useLanguage();
+  const isTa = lang === 'ta';
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [activeView, setActiveView] = useState<AdminView>('dashboard');
   const [selectedKitchenOrderId, setSelectedKitchenOrderId] = useState<string | undefined>(undefined);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    updatePageSEO('/admin', isTa);
+  }, [isTa]);
 
   // Check Supabase session & admin authorization on mount, prevent flickering
   useEffect(() => {

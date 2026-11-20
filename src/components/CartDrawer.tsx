@@ -1,25 +1,50 @@
 import React, { useState } from 'react';
-import { X, Check } from 'lucide-react';
-import { useCart } from '../context/CartContext';
+import { X, Check, Edit3, Utensils, ChevronDown, ChevronUp } from 'lucide-react';
+import { useCart, type CartItem } from '../context/CartContext';
 import { useLanguage } from '../context/LanguageContext';
 import { GuestCountSelector } from './GuestCountSelector';
 import { FoodQuantitySelector } from './FoodQuantitySelector';
 import { InquiryFormModal } from './InquiryFormModal';
+import { BananaLeafCustomizerModal } from './BananaLeafCustomizerModal';
+import type { CustomizedMealSelection } from '../types/bananaLeaf';
 
 export const CartDrawer: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [editingCustomItem, setEditingCustomItem] = useState<CartItem | null>(null);
+  const [expandedCustomItems, setExpandedCustomItems] = useState<Record<string, boolean>>({});
+
   const {
     cartItems,
     isCartDrawerOpen,
     setIsCartDrawerOpen,
     removeItem,
+    updateCustomization,
     guestCount,
     foodQuantities,
   } = useCart();
-  const { t, dishName, categoryName } = useLanguage();
+  const { t, dishName, categoryName, lang } = useLanguage();
+  const isTa = lang === 'ta';
 
   if (!isCartDrawerOpen) return null;
+
+  const toggleExpand = (cartKey: string) => {
+    setExpandedCustomItems((prev) => ({
+      ...prev,
+      [cartKey]: !prev[cartKey],
+    }));
+  };
+
+  const handleEditCustomization = (item: CartItem) => {
+    setEditingCustomItem(item);
+  };
+
+  const handleConfirmEditCustomization = (customization: CustomizedMealSelection) => {
+    if (editingCustomItem) {
+      updateCustomization(editingCustomItem.cartItemId || editingCustomItem.id, customization);
+      setEditingCustomItem(null);
+    }
+  };
 
   // Group items by categoryId
   const groupedItems = cartItems.reduce((acc, item) => {
@@ -91,27 +116,95 @@ export const CartDrawer: React.FC = () => {
                     <h4 className="text-xs font-bold text-primary tracking-wider uppercase mb-2">
                       {categoryName(categoryId, categoryId)}
                     </h4>
-                    <div className="space-y-2">
-                      {items.map((item) => (
-                        <div
-                          key={item.id}
-                          className="flex items-center justify-between gap-3 py-2 border-b border-slate-100 last:border-0"
-                        >
-                          <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                            <Check size={16} className="text-emerald-600 flex-shrink-0" />
-                            <span className="text-slate-800 text-xs sm:text-sm font-semibold truncate">
-                              {dishName(item.id, item.name)}
-                            </span>
-                          </div>
-                          <button
-                            onClick={() => removeItem(item.id)}
-                            className="text-red-500 hover:text-red-700 text-xs font-semibold px-2 py-1 rounded-lg hover:bg-red-50 transition-colors cursor-pointer flex-shrink-0"
-                            aria-label={`Remove ${dishName(item.id, item.name)}`}
+                    <div className="space-y-2.5">
+                      {items.map((item) => {
+                        const itemKey = item.cartItemId || item.id;
+                        const isCustom = !!item.customization;
+                        const isExpanded = !!expandedCustomItems[itemKey];
+
+                        return (
+                          <div
+                            key={itemKey}
+                            className={`rounded-xl border transition-all ${
+                              isCustom
+                                ? 'border-emerald-200 bg-emerald-50/40 p-3'
+                                : 'border-slate-100 py-2 border-b last:border-0'
+                            }`}
                           >
-                            {t.remove}
-                          </button>
-                        </div>
-                      ))}
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                                {isCustom ? (
+                                  <Utensils size={16} className="text-emerald-700 flex-shrink-0" />
+                                ) : (
+                                  <Check size={16} className="text-emerald-600 flex-shrink-0" />
+                                )}
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-slate-800 text-xs sm:text-sm font-semibold truncate">
+                                      {dishName(item.id, item.name)}
+                                    </span>
+                                    {isCustom && item.customization && (
+                                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                        {isTa
+                                          ? `தனிப்பயன் (${item.customization.selectedItems.length} வகைகள்)`
+                                          : `Customized (${item.customization.selectedItems.length} items)`}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1.5 flex-shrink-0">
+                                {isCustom && (
+                                  <>
+                                    <button
+                                      onClick={() => handleEditCustomization(item)}
+                                      className="inline-flex items-center gap-1 text-emerald-700 hover:text-emerald-900 bg-white hover:bg-emerald-100 text-xs font-semibold px-2 py-1 rounded-lg border border-emerald-200 transition-colors cursor-pointer"
+                                      title={isTa ? 'உணவு வகைகளை மாற்று' : 'Edit meal items'}
+                                    >
+                                      <Edit3 size={12} />
+                                      <span>{isTa ? 'மாற்று' : 'Edit'}</span>
+                                    </button>
+                                    <button
+                                      onClick={() => toggleExpand(itemKey)}
+                                      className="p-1 text-slate-500 hover:text-slate-800 rounded-lg hover:bg-slate-100"
+                                      aria-label="Toggle details"
+                                    >
+                                      {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                    </button>
+                                  </>
+                                )}
+                                <button
+                                  onClick={() => removeItem(itemKey)}
+                                  className="text-red-500 hover:text-red-700 text-xs font-semibold px-2 py-1 rounded-lg hover:bg-red-50 transition-colors cursor-pointer"
+                                  aria-label={`Remove ${dishName(item.id, item.name)}`}
+                                >
+                                  {t.remove}
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Expanded List of Customized Dishes */}
+                            {isCustom && item.customization && (isExpanded || true) && (
+                              <div className="mt-2.5 pt-2 border-t border-emerald-200/60 pl-6">
+                                <p className="text-[11px] font-semibold text-emerald-900 mb-1">
+                                  {isTa ? 'தேர்ந்தெடுக்கப்பட்ட உணவுகள்:' : 'Selected meal items:'}
+                                </p>
+                                <div className="flex flex-wrap gap-1">
+                                  {item.customization.selectedItems.map((dish) => (
+                                    <span
+                                      key={dish.dishId}
+                                      className="inline-block text-[11px] px-2 py-0.5 rounded-md bg-white border border-emerald-200 text-slate-700 shadow-2xs font-medium"
+                                    >
+                                      {isTa && dish.dishNameTa ? dish.dishNameTa : dish.dishName}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 ))}
@@ -142,6 +235,16 @@ export const CartDrawer: React.FC = () => {
         </div>
       </div>
       <InquiryFormModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
+
+      {/* Edit Banana Leaf Customizer Modal */}
+      {editingCustomItem && (
+        <BananaLeafCustomizerModal
+          isOpen={!!editingCustomItem}
+          initialSelection={editingCustomItem.customization}
+          onClose={() => setEditingCustomItem(null)}
+          onConfirm={handleConfirmEditCustomization}
+        />
+      )}
     </>
   );
 };

@@ -12,12 +12,14 @@ import {
   Eye,
   EyeOff,
   Filter,
+  Sparkles,
 } from 'lucide-react';
 import { categories as staticCategories } from '../../data/menu';
 import { dishService, type UnifiedDish } from '../../services/dishService';
 import { storageService } from '../../services/storageService';
 import { MEASUREMENT_UNITS } from '../../data/units';
 import { useLanguage } from '../../context/LanguageContext';
+import { AdminBananaLeafConfigModal } from './AdminBananaLeafConfigModal';
 
 const MAX_IMAGE_SIZE = 2 * 1024 * 1024; // 2MB limit for base64 storage
 
@@ -83,6 +85,7 @@ export const AdminDishes: React.FC = () => {
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<UnifiedDish | null>(null);
+  const [showBananaLeafConfig, setShowBananaLeafConfig] = useState(false);
   const [toast, setToast] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -319,6 +322,14 @@ export const AdminDishes: React.FC = () => {
 
         <div className="flex items-center gap-2.5 flex-wrap">
           <button
+            onClick={() => setShowBananaLeafConfig(true)}
+            className="flex items-center gap-2 bg-emerald-700 hover:bg-emerald-800 text-white px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold shadow-xs transition-all duration-150 cursor-pointer"
+          >
+            <Sparkles size={16} className="text-yellow-300" />
+            <span>{isTa ? 'வாழை இலை அமைப்புகள்' : 'Banana Leaf Customizer'}</span>
+          </button>
+
+          <button
             onClick={openAdd}
             className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold shadow-sm transition-all duration-150 cursor-pointer"
           >
@@ -541,6 +552,17 @@ export const AdminDishes: React.FC = () => {
                         </button>
 
                         <div className="flex items-center gap-1">
+                          {(dish.id === 'ms1' || dish.name.toLowerCase().includes('banana leaf')) && (
+                            <button
+                              onClick={() => setShowBananaLeafConfig(true)}
+                              title={isTa ? 'வாழை இலை உணவு அமைப்புகள்' : 'Customize Banana Leaf options'}
+                              className="p-1.5 text-emerald-700 hover:text-emerald-900 hover:bg-emerald-50 rounded-lg cursor-pointer transition-colors flex items-center gap-1 font-semibold"
+                            >
+                              <Sparkles size={14} className="text-emerald-600" />
+                              <span className="text-[11px]">{isTa ? 'அமைப்புகள்' : 'Customize'}</span>
+                            </button>
+                          )}
+
                           <button
                             onClick={() => openEdit(dish)}
                             title={isTa ? 'உணவைத் திருத்த' : 'Edit dish'}
@@ -881,6 +903,12 @@ export const AdminDishes: React.FC = () => {
           </div>
         </div>
       )}
+      {/* Banana Leaf Meals Customizer Settings Modal */}
+      <AdminBananaLeafConfigModal
+        isOpen={showBananaLeafConfig}
+        onClose={() => setShowBananaLeafConfig(false)}
+        onSaved={() => loadDishes()}
+      />
     </div>
   );
 };

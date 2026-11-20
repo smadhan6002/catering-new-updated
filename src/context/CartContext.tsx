@@ -1,12 +1,16 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
 import type { MenuItem } from '../data/menu';
+import type { CustomizedMealSelection } from '../types/bananaLeaf';
 
-export type CartItem = MenuItem;
+export interface CartItem extends MenuItem {
+  cartItemId?: string;
+  customization?: CustomizedMealSelection;
+}
 
 export interface FoodQuantity {
   dishId: string;
-  dishName: string;  // canonical English name (snapshot)
-  quantity: number;  // in kg
+  dishName: string; // canonical English name (snapshot)
+  quantity: number; // in kg
   unit: 'kg';
 }
 
@@ -14,8 +18,9 @@ interface CartContextType {
   cartItems: CartItem[];
   guestCount: number | null;
   setGuestCount: (count: number | null) => void;
-  addItem: (item: MenuItem) => void;
-  removeItem: (id: string) => void;
+  addItem: (item: MenuItem, customization?: CustomizedMealSelection) => void;
+  updateCustomization: (cartItemId: string, customization: CustomizedMealSelection) => void;
+  removeItem: (idOrCartItemId: string) => void;
   clearCart: () => void;
   totalItems: number;
   isCartDrawerOpen: boolean;
@@ -42,26 +47,59 @@ export function CartProvider({ children }: { children: ReactNode }) {
     setGuestCountState(count);
   }, []);
 
-  const addItem = useCallback((item: MenuItem) => {
+  const addItem = useCallback((item: MenuItem, customization?: CustomizedMealSelection) => {
     setCartItems((prev) => {
-      const existing = prev.find((i) => i.id === item.id);
-      if (existing) {
+      const cartItemId = customization
+        ? `${item.id}-${customization.customizationId}`
+        : item.id;
+
+      const existingIndex = prev.findIndex(
+        (i) => (i.cartItemId || i.id) === cartItemId
+      );
+
+      if (existingIndex !== -1) {
+        // If already in cart with same customization, keep existing
         return prev;
       }
 
-      // Trigger recommendation ONLY for the dish "Rice"
-      const isRice = item.id === 'ms2' || item.name.trim().toLowerCase() === 'rice';
+      // Trigger recommendation ONLY for the plain dish "Rice" when added without meal customization
+      const isRice = !customization && (item.id === 'ms2' || item.name.trim().toLowerCase() === 'rice');
       if (isRice) {
         setIsRiceSuggestionOpen(true);
       }
 
-      return [...prev, item];
+      const newCartItem: CartItem = {
+        ...item,
+        cartItemId,
+        customization,
+      };
+
+      return [...prev, newCartItem];
     });
   }, []);
 
-  const removeItem = useCallback((id: string) => {
-    setCartItems((prev) => prev.filter((item) => item.id !== id));
-    setFoodQuantities((prev) => prev.filter((fq) => fq.dishId !== id));
+  const updateCustomization = useCallback((oldCartItemId: string, customization: CustomizedMealSelection) => {
+    setCartItems((prev) => {
+      return prev.map((item) => {
+        if ((item.cartItemId || item.id) === oldCartItemId) {
+          const newCartItemId = `${item.id}-${customization.customizationId}`;
+          return {
+            ...item,
+            cartItemId: newCartItemId,
+            customization,
+          };
+        }
+        return item;
+      });
+    });
+  }, []);
+
+  const removeItem = useCallback((idOrCartItemId: string) => {
+    setCartItems((prev) => prev.filter((item) => {
+      const itemKey = item.cartItemId || item.id;
+      return itemKey !== idOrCartItemId;
+    }));
+    setFoodQuantities((prev) => prev.filter((fq) => fq.dishId !== idOrCartItemId));
   }, []);
 
   const clearCart = useCallback(() => {
@@ -98,6 +136,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         guestCount,
         setGuestCount,
         addItem,
+        updateCustomization,
         removeItem,
         clearCart,
         totalItems,
@@ -123,4 +162,3 @@ export function useCart() {
   }
   return context;
 }
-

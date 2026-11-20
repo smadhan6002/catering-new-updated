@@ -479,9 +479,17 @@ const OrderDetail: React.FC<OrderDetailProps> = ({ order: initialOrder, onClose,
                           )}
                         </div>
                         {itemNote && (
-                          <p className="text-[11px] text-slate-500 italic ml-5 mt-0.5">
-                            Note: {itemNote}
-                          </p>
+                          <div className="mt-1 ml-5">
+                            {itemNote.toLowerCase().includes('custom') ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                                🌿 {itemNote}
+                              </span>
+                            ) : (
+                              <p className="text-[11px] text-slate-500 italic">
+                                Note: {itemNote}
+                              </p>
+                            )}
+                          </div>
                         )}
                       </div>
 

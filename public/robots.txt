@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /admin/
+
+# Host & Sitemap
+Sitemap: https://kanchi-ambal-catering.vercel.app/sitemap.xml
+Host: https://kanchi-ambal-catering.vercel.app

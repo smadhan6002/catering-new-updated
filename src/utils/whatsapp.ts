@@ -47,6 +47,9 @@ export const generateWhatsAppLink = (order: Order, t: Translations): string => {
   order.items.forEach((item, index) => {
     const displayName = getDishDisplayName(item.dishName, item.dishId, t);
     message += `${index + 1}. ${displayName}\n`;
+    if (item.notes) {
+      message += `   🌿 ${item.notes}\n`;
+    }
   });
   message += `\n`;
 
