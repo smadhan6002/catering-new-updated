@@ -88,33 +88,43 @@ export const DEFAULT_BANANA_LEAF_CONFIG: MealCustomizationConfig = {
         { dishId: 'ms15', dishName: 'Potato Chips', dishNameTa: 'உருளைக்கிழங்கு சிப்ஸ்', isDefault: false },
         { dishId: 'ms16', dishName: 'Banana Chips', dishNameTa: 'வாழைக்காய் சிப்ஸ்', isDefault: false },
         { dishId: 'ms20', dishName: 'Vathal Varieties', dishNameTa: 'வத்தல் வகைகள்', isDefault: false },
-      ],
-    },
-    {
-      id: 'group-sweets',
-      name: 'Sweets & Payasam',
-      nameTa: 'பாயாசம் & இனிப்பு வகைகள்',
-      description: 'Celebratory sweets for the auspicious feast',
-      descriptionTa: 'விசேஷ பாயாசம் மற்றும் பாரம்பரிய இனிப்புகள்',
-      minSelections: 1,
-      maxSelections: 2,
-      isRequired: true,
-      dishes: [
-        { dishId: 'py1', dishName: 'Payasam', dishNameTa: 'பாயாசம்', isDefault: true },
-        { dishId: 'py3', dishName: 'Semiya Payasam', dishNameTa: 'சேமியா பாயாசம்', isDefault: false },
-        { dishId: 'py7', dishName: 'Elaneer Payasam', dishNameTa: 'இளநீர் பாயாசம்', isDefault: false },
-        { dishId: 'ms23', dishName: 'Banana', dishNameTa: 'வாழைப்பழம்', isDefault: true },
+        { dishId: 'ms23', dishName: 'Banana', dishNameTa: 'வாழைப்பழம்', isDefault: false },
         { dishId: 'ms19', dishName: 'Beeda', dishNameTa: 'பீடா', isDefault: false },
       ],
     },
   ],
 };
 
+function sanitizeGroups(groups: MealGroup[]): MealGroup[] {
+  return (groups || [])
+    .filter(
+      (g) =>
+        g.id !== 'group-sweets' &&
+        !g.name.toLowerCase().includes('payasam') &&
+        !g.name.toLowerCase().includes('sweet') &&
+        !(g.nameTa && g.nameTa.includes('பாயாசம்'))
+    )
+    .map((g) => ({
+      ...g,
+      dishes: (g.dishes || []).filter((d) => {
+        const idLower = (d.dishId || '').toLowerCase();
+        const nameLower = (d.dishName || '').toLowerCase();
+        const taLower = (d.dishNameTa || '').toLowerCase();
+        return (
+          !idLower.startsWith('py') &&
+          !nameLower.includes('payasam') &&
+          !taLower.includes('பாயாசம்')
+        );
+      }),
+    }));
+}
+
 function enrichDishOptions(groups: MealGroup[]): MealGroup[] {
   const allDishes = dishService.getAllDishes();
   const dishMap = new Map(allDishes.map((d) => [d.id, d]));
+  const cleaned = sanitizeGroups(groups);
 
-  return groups.map((g) => ({
+  return cleaned.map((g) => ({
     ...g,
     dishes: g.dishes.map((dish) => {
       const live = dishMap.get(dish.dishId);

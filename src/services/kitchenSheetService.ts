@@ -6,6 +6,7 @@ import { orderService } from './orderService';
 import { getDishUnitConfig } from '../data/units';
 import { ta } from '../locales/ta';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { isNormalMeals } from '../data/normalMeals';
 
 const KITCHEN_SHEETS_KEY = 'annapoorna_kitchen_sheets';
 
@@ -113,27 +114,35 @@ export const kitchenSheetService = {
     (order.items || []).forEach((item, index) => {
       processedDishIds.add(item.dishId || item.dishName);
 
+      const isNormal = isNormalMeals(item.dishId) || isNormalMeals(item.dishName);
+
       const matchedFq = order.foodQuantities?.find(
         (fq) => (item.dishId && fq.dishId === item.dishId) || fq.dishName === item.dishName
       );
 
-      const customerQty = item.quantity ?? matchedFq?.quantity ?? null;
-      const customerUnit = item.unit ?? matchedFq?.unit ?? '';
+      const customerQty = isNormal
+        ? (item.quantity ?? order.guestCount ?? 1)
+        : (item.quantity ?? matchedFq?.quantity ?? null);
+      const customerUnit = isNormal ? 'Plates' : (item.unit ?? matchedFq?.unit ?? '');
 
       const unitCfg = getDishUnitConfig(item.categoryId);
       const chosenUnit = customerUnit || unitCfg.defaultUnit || 'kg';
 
+      const defaultNotes = isNormal
+        ? `NORMAL MEALS – ${customerQty} PLATES. Required Items: Rice, Sambar, Kootu, Rasam, Vatha Kuzhambu, Buttermilk, Poriyal, Pickle, Appalam`
+        : (item.notes || matchedFq?.note || '');
+
       items.push({
         id: `kos-item-${index + 1}-${Date.now()}`,
         dishId: item.dishId || `dish-${index + 1}`,
-        dishName: item.dishName,
-        dishNameTa: getTamilDishName(item.dishName, item.dishId),
+        dishName: isNormal ? 'Normal Meals' : item.dishName,
+        dishNameTa: isNormal ? 'சாதாரண சாப்பாடு' : getTamilDishName(item.dishName, item.dishId),
         customerQuantity: customerQty,
         customerUnit: customerUnit,
         prepQuantity: customerQty !== null ? customerQty : '',
         unit: chosenUnit,
         isCustomUnit: !KITCHEN_UNIT_OPTIONS.some((u) => u.value.toLowerCase() === chosenUnit.toLowerCase()),
-        kitchenNotes: item.notes || matchedFq?.note || '',
+        kitchenNotes: item.notes || defaultNotes,
       });
     });
 

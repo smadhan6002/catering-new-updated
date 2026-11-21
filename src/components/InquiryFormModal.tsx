@@ -7,6 +7,7 @@ import { orderService } from '../services/orderService';
 import { customerService } from '../services/customerService';
 import { messageService } from '../services/messageService';
 import type { OrderItem } from '../types/admin';
+import { isNormalMeals, NORMAL_MEALS_DEFAULT_ITEMS } from '../data/normalMeals';
 
 interface InquiryFormModalProps {
   isOpen: boolean;
@@ -65,19 +66,36 @@ export const InquiryFormModal: React.FC<InquiryFormModalProps> = ({ isOpen, onCl
       // Map cart items into snapshot order items with full customization breakdown
       const orderItems: OrderItem[] = cartItems.map((item) => {
         let notes: string | undefined = undefined;
-        if (item.customization && item.customization.selectedItems.length > 0) {
+        let quantity: number | undefined = undefined;
+        let unit: string | undefined = undefined;
+
+        if (isNormalMeals(item.id) || isNormalMeals(item.name)) {
+          const plates = item.plateQuantity || 1;
+          quantity = plates;
+          unit = 'Plates';
+          const names = NORMAL_MEALS_DEFAULT_ITEMS
+            .map((d, idx) => `${idx + 1}. ${t.lang === 'ta' ? d.dishNameTa : d.dishName}`)
+            .join(', ');
+          notes = `NORMAL MEALS – ${plates} PLATES. Included Items: ${names}`;
+        } else if (item.customization && item.customization.selectedItems.length > 0) {
           const names = item.customization.selectedItems
             .map((d) => (t.lang === 'ta' && d.dishNameTa ? d.dishNameTa : d.dishName))
             .join(', ');
           notes = `Customized (${item.customization.selectedItems.length} items): ${names}`;
         }
+
         return {
           dishId: item.id,
           dishName: item.name,   // snapshot — safe even if dish is later renamed/deleted
           categoryId: item.categoryId,
+          quantity,
+          unit,
           notes,
         };
       });
+
+      const normalMealItem = cartItems.find((i) => isNormalMeals(i.id) || isNormalMeals(i.name));
+      const effectiveGuestCount = guestCount ?? (normalMealItem?.plateQuantity || null);
 
       // Find or create customer record
       const customer = customerService.findOrCreateFromOrder({
@@ -97,7 +115,7 @@ export const InquiryFormModal: React.FC<InquiryFormModalProps> = ({ isOpen, onCl
         eventType: formData.eventType.trim(),
         orderDate: formData.eventDate,
         items: orderItems,
-        guestCount,
+        guestCount: effectiveGuestCount,
         foodQuantities, // Include food quantities in the order
         totalAmount: 0,
         advanceAmount: 0,

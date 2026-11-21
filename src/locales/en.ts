@@ -80,6 +80,12 @@ export const en = {
   continue: 'Continue',
   skip: 'Skip',
 
+  // Normal Meals
+  normalMeals: 'Normal Meals',
+  includedItems: 'Included Items',
+  normalMealsAdded: 'Normal Meals added successfully!',
+  platesUnit: 'Plates',
+
   // Category names
   categories: {
     starters: 'Starters',
@@ -115,7 +121,7 @@ export const en = {
     vr9: 'Veg Pulao', vr10: 'Mushroom Biryani', vr11: 'Gobi Rice', vr12: 'Mango Rice',
     vr13: 'Coconut Rice', vr14: 'Curry Leaves Rice', vr15: 'Pudina Rice', vr16: 'Pepper Rice',
     vr17: 'Samba Rice',
-    ms1: 'Banana Leaf Meals', ms2: 'Rice', ms3: 'Sambar', ms4: 'Vatha Kuzhambu',
+    ms1: 'Banana Leaf Meals', ms_normal: 'Normal Meals', ms2: 'Rice', ms3: 'Sambar', ms4: 'Vatha Kuzhambu',
     ms5: 'Tomato Rasam', ms6: 'Pepper Rasam', ms7: 'Pineapple Rasam', ms8: 'Garlic Rasam',
     ms9: 'Buttermilk', ms10: 'Poriyal', ms11: 'Kootu', ms12: 'Appalam', ms13: 'Pickle',
     ms14: 'Aviyal', ms15: 'Potato Chips', ms16: 'Banana Chips', ms17: 'Tapioca Chips',

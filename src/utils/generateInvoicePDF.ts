@@ -346,9 +346,13 @@ export async function generateInvoicePDF(
       ctx.fillText(String(startIdx + r + 1), colX[0] + 20, y + 24);
 
       // Dish Name (Fitted to width)
+      const dishDisplayName = itm.quantity && (itm.dishName.toLowerCase().includes('normal meal') || itm.dishId === 'ms_normal')
+        ? `${itm.dishName} (${itm.quantity} ${isTa ? 'நபர்கள்' : 'Plates'})`
+        : itm.dishName;
+
       drawFittedText(
         ctx,
-        itm.dishName,
+        dishDisplayName,
         colX[1] + 14,
         y + 24,
         colWidths[1] - 28,

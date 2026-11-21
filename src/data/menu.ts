@@ -49,6 +49,7 @@ import img_vr15 from '../assets/dishes/Variety Rice/Pudina Rice.jpg';
 import img_vr16 from '../assets/dishes/Variety Rice/Pepper Rice.jpg';
 import img_vr17 from '../assets/dishes/Variety Rice/Samba Rice.jpg';
 import img_ms1 from '../assets/dishes/Meals & Sides/Banana Leaf Meals.jpg';
+import img_ms_normal from '../assets/dishes/Meals & Sides/Normal Meals.jpg';
 import img_ms2 from '../assets/dishes/Meals & Sides/Rice.jpg';
 import img_ms3 from '../assets/dishes/Meals & Sides/Sambar.jpg';
 import img_ms4 from '../assets/dishes/Meals & Sides/Vatha Kuzhambu.jpg';
@@ -296,6 +297,7 @@ export const categories: Category[] = [
     name: "Meals & Sides",
     items: [
       { id: "ms1", name: "Banana Leaf Meals", categoryId: "meals-sides", image: img_ms1 },
+      { id: "ms_normal", name: "Normal Meals", categoryId: "meals-sides", image: img_ms_normal },
       { id: "ms2", name: "Rice", categoryId: "meals-sides", image: img_ms2 },
       { id: "ms3", name: "Sambar", categoryId: "meals-sides", image: img_ms3 },
       { id: "ms4", name: "Vatha Kuzhambu", categoryId: "meals-sides", image: img_ms4 },

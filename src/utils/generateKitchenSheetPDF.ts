@@ -559,10 +559,20 @@ async function generateTamilCanvasPDF(
       x += colWidths[4];
 
       // Col 6: Kitchen Notes
-      ctx.fillStyle = '#64748B';
-      ctx.font = 'italic 12px "Noto Sans Tamil", "Inter", sans-serif';
-      const notes = item.kitchenNotes ? (item.kitchenNotes.length > 28 ? item.kitchenNotes.substring(0, 26) + '…' : item.kitchenNotes) : '—';
-      ctx.fillText(notes, x + 12, rowY + 28);
+      const notes = item.kitchenNotes || '—';
+      drawFittedText(
+        ctx,
+        notes,
+        x + 10,
+        rowY + 28,
+        colWidths[5] - 20,
+        12,
+        8,
+        '"Noto Sans Tamil", "Inter", sans-serif',
+        'normal',
+        '#64748B',
+        'left'
+      );
 
       y += rowHeight;
     });

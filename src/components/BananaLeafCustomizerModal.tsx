@@ -386,14 +386,13 @@ export const BananaLeafCustomizerModal: React.FC<BananaLeafCustomizerModalProps>
                     </g>
                   )}
 
-                  {/* 2. Top-Left Sweet (Payasam/Kesari) */}
-                  {(selectedDishes.has('py1') || selectedDishes.has('py3') || selectedDishes.has('py7')) && (
+                  {/* 2. Top-Left Banana (வாழைப்பழம்) */}
+                  {selectedDishes.has('ms23') && (
                     <g filter="url(#foodShadow)">
-                      <circle cx="105" cy="85" r="22" fill="#FEF3C7" stroke="#F59E0B" strokeWidth="2" />
-                      <circle cx="105" cy="85" r="16" fill="#FDE68A" />
-                      <circle cx="102" cy="82" r="3" fill="#B45309" />
-                      <text x="105" y="117" textAnchor="middle" fill="#FEF3C7" fontSize="9" fontWeight="bold">
-                        {isTa ? 'பாயாசம்' : 'Payasam'}
+                      <circle cx="105" cy="85" r="18" fill="#FEF08A" stroke="#EAB308" strokeWidth="1.5" />
+                      <ellipse cx="105" cy="84" rx="14" ry="7" fill="#FDE047" transform="rotate(-25 105 84)" />
+                      <text x="105" y="117" textAnchor="middle" fill="#FEF08A" fontSize="8" fontWeight="bold">
+                        {isTa ? 'வாழைப்பழம்' : 'Banana'}
                       </text>
                     </g>
                   )}

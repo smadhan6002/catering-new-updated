@@ -7,6 +7,7 @@ import { FoodQuantitySelector } from './FoodQuantitySelector';
 import { InquiryFormModal } from './InquiryFormModal';
 import { BananaLeafCustomizerModal } from './BananaLeafCustomizerModal';
 import type { CustomizedMealSelection } from '../types/bananaLeaf';
+import { isNormalMeals, NORMAL_MEALS_DEFAULT_ITEMS } from '../data/normalMeals';
 
 export const CartDrawer: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -20,6 +21,7 @@ export const CartDrawer: React.FC = () => {
     setIsCartDrawerOpen,
     removeItem,
     updateCustomization,
+    updatePlateQuantity,
     guestCount,
     foodQuantities,
   } = useCart();
@@ -120,20 +122,25 @@ export const CartDrawer: React.FC = () => {
                       {items.map((item) => {
                         const itemKey = item.cartItemId || item.id;
                         const isCustom = !!item.customization;
+                        const isNormal = isNormalMeals(item.id) || isNormalMeals(item.name);
                         const isExpanded = !!expandedCustomItems[itemKey];
 
                         return (
                           <div
                             key={itemKey}
                             className={`rounded-xl border transition-all ${
-                              isCustom
+                              isNormal
+                                ? 'border-orange-300 bg-orange-50/50 p-3 shadow-2xs'
+                                : isCustom
                                 ? 'border-emerald-200 bg-emerald-50/40 p-3'
                                 : 'border-slate-100 py-2 border-b last:border-0'
                             }`}
                           >
                             <div className="flex items-center justify-between gap-3">
                               <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                                {isCustom ? (
+                                {isNormal ? (
+                                  <Utensils size={16} className="text-orange-600 flex-shrink-0" />
+                                ) : isCustom ? (
                                   <Utensils size={16} className="text-emerald-700 flex-shrink-0" />
                                 ) : (
                                   <Check size={16} className="text-emerald-600 flex-shrink-0" />
@@ -143,6 +150,11 @@ export const CartDrawer: React.FC = () => {
                                     <span className="text-slate-800 text-xs sm:text-sm font-semibold truncate">
                                       {dishName(item.id, item.name)}
                                     </span>
+                                    {isNormal && (
+                                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange-100 text-orange-800 border border-orange-300">
+                                        {isTa ? '9 உணவுகள்' : '9 Items Included'}
+                                      </span>
+                                    )}
                                     {isCustom && item.customization && (
                                       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
                                         {isTa
@@ -155,6 +167,32 @@ export const CartDrawer: React.FC = () => {
                               </div>
 
                               <div className="flex items-center gap-1.5 flex-shrink-0">
+                                {isNormal && (
+                                  <div className="flex items-center gap-1 bg-white border border-orange-300 rounded-lg px-1.5 py-0.5 shadow-2xs">
+                                    <button
+                                      type="button"
+                                      onClick={() => updatePlateQuantity(itemKey, Math.max(1, (item.plateQuantity || 1) - 1))}
+                                      className="w-5 h-5 flex items-center justify-center text-orange-700 hover:bg-orange-100 rounded font-bold text-xs cursor-pointer"
+                                      title="Decrease plates"
+                                    >
+                                      -
+                                    </button>
+                                    <span className="text-xs font-bold text-slate-900 min-w-[20px] text-center">
+                                      {item.plateQuantity || 1}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => updatePlateQuantity(itemKey, (item.plateQuantity || 1) + 1)}
+                                      className="w-5 h-5 flex items-center justify-center text-orange-700 hover:bg-orange-100 rounded font-bold text-xs cursor-pointer"
+                                      title="Increase plates"
+                                    >
+                                      +
+                                    </button>
+                                    <span className="text-[10px] font-semibold text-orange-800 ml-0.5 hidden min-[360px]:inline">
+                                      {isTa ? 'நபர்கள்' : 'Plates'}
+                                    </span>
+                                  </div>
+                                )}
                                 {isCustom && (
                                   <>
                                     <button
@@ -183,6 +221,27 @@ export const CartDrawer: React.FC = () => {
                                 </button>
                               </div>
                             </div>
+
+                            {/* Normal Meals Included Dishes (9 Items) */}
+                            {isNormal && (
+                              <div className="mt-2.5 pt-2 border-t border-orange-200/70 pl-2 sm:pl-4">
+                                <p className="text-[11px] font-bold text-orange-950 mb-1.5 flex items-center gap-1.5">
+                                  <Check size={13} className="text-emerald-600" />
+                                  <span>{isTa ? 'உள்ளடங்கிய உணவுகள் (9 வகைகள்):' : 'Included Items (9 Items):'}</span>
+                                </p>
+                                <div className="grid grid-cols-2 min-[400px]:grid-cols-3 gap-1.5">
+                                  {NORMAL_MEALS_DEFAULT_ITEMS.map((dish, idx) => (
+                                    <div
+                                      key={dish.dishId}
+                                      className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-md bg-white border border-orange-200 text-slate-800 font-medium shadow-2xs"
+                                    >
+                                      <span className="text-orange-600 font-bold text-[10px] w-3 text-center">{idx + 1}.</span>
+                                      <span className="truncate">{isTa ? dish.dishNameTa : dish.dishName}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
 
                             {/* Expanded List of Customized Dishes */}
                             {isCustom && item.customization && (isExpanded || true) && (

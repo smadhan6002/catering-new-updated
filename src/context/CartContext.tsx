@@ -5,6 +5,8 @@ import type { CustomizedMealSelection } from '../types/bananaLeaf';
 export interface CartItem extends MenuItem {
   cartItemId?: string;
   customization?: CustomizedMealSelection;
+  plateQuantity?: number;
+  includedDishes?: { dishId: string; dishName: string; dishNameTa: string }[];
 }
 
 export interface FoodQuantity {
@@ -18,8 +20,13 @@ interface CartContextType {
   cartItems: CartItem[];
   guestCount: number | null;
   setGuestCount: (count: number | null) => void;
-  addItem: (item: MenuItem, customization?: CustomizedMealSelection) => void;
+  addItem: (
+    item: MenuItem,
+    customization?: CustomizedMealSelection,
+    extra?: { plateQuantity?: number; includedDishes?: { dishId: string; dishName: string; dishNameTa: string }[] }
+  ) => void;
   updateCustomization: (cartItemId: string, customization: CustomizedMealSelection) => void;
+  updatePlateQuantity: (cartItemId: string, quantity: number) => void;
   removeItem: (idOrCartItemId: string) => void;
   clearCart: () => void;
   totalItems: number;
@@ -47,34 +54,67 @@ export function CartProvider({ children }: { children: ReactNode }) {
     setGuestCountState(count);
   }, []);
 
-  const addItem = useCallback((item: MenuItem, customization?: CustomizedMealSelection) => {
+  const addItem = useCallback(
+    (
+      item: MenuItem,
+      customization?: CustomizedMealSelection,
+      extra?: { plateQuantity?: number; includedDishes?: { dishId: string; dishName: string; dishNameTa: string }[] }
+    ) => {
+      setCartItems((prev) => {
+        const cartItemId = customization
+          ? `${item.id}-${customization.customizationId}`
+          : item.id;
+
+        const existingIndex = prev.findIndex(
+          (i) => (i.cartItemId || i.id) === cartItemId
+        );
+
+        if (existingIndex !== -1) {
+          // If item already in cart has plateQuantity or extra specifies plateQuantity, increment plate quantity
+          if (extra?.plateQuantity || prev[existingIndex].plateQuantity) {
+            return prev.map((it, idx) =>
+              idx === existingIndex
+                ? { ...it, plateQuantity: (it.plateQuantity || 1) + 1 }
+                : it
+            );
+          }
+          return prev;
+        }
+
+        // Trigger recommendation ONLY for the plain dish "Rice" when added without meal customization
+        const isRice = !customization && (item.id === 'ms2' || item.name.trim().toLowerCase() === 'rice');
+        if (isRice) {
+          setIsRiceSuggestionOpen(true);
+        }
+
+        const newCartItem: CartItem = {
+          ...item,
+          cartItemId,
+          customization,
+          plateQuantity: extra?.plateQuantity,
+          includedDishes: extra?.includedDishes,
+        };
+
+        return [...prev, newCartItem];
+      });
+    },
+    []
+  );
+
+  const updatePlateQuantity = useCallback((cartItemId: string, quantity: number) => {
     setCartItems((prev) => {
-      const cartItemId = customization
-        ? `${item.id}-${customization.customizationId}`
-        : item.id;
-
-      const existingIndex = prev.findIndex(
-        (i) => (i.cartItemId || i.id) === cartItemId
-      );
-
-      if (existingIndex !== -1) {
-        // If already in cart with same customization, keep existing
-        return prev;
+      if (quantity <= 0) {
+        return prev.filter((item) => (item.cartItemId || item.id) !== cartItemId);
       }
-
-      // Trigger recommendation ONLY for the plain dish "Rice" when added without meal customization
-      const isRice = !customization && (item.id === 'ms2' || item.name.trim().toLowerCase() === 'rice');
-      if (isRice) {
-        setIsRiceSuggestionOpen(true);
-      }
-
-      const newCartItem: CartItem = {
-        ...item,
-        cartItemId,
-        customization,
-      };
-
-      return [...prev, newCartItem];
+      return prev.map((item) => {
+        if ((item.cartItemId || item.id) === cartItemId) {
+          return {
+            ...item,
+            plateQuantity: quantity,
+          };
+        }
+        return item;
+      });
     });
   }, []);
 
@@ -137,6 +177,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         setGuestCount,
         addItem,
         updateCustomization,
+        updatePlateQuantity,
         removeItem,
         clearCart,
         totalItems,

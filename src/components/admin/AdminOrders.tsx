@@ -480,7 +480,11 @@ const OrderDetail: React.FC<OrderDetailProps> = ({ order: initialOrder, onClose,
                         </div>
                         {itemNote && (
                           <div className="mt-1 ml-5">
-                            {itemNote.toLowerCase().includes('custom') ? (
+                            {itemNote.toLowerCase().includes('normal meals') ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-orange-800 bg-orange-50 px-2.5 py-1 rounded-md border border-orange-200">
+                                🍛 {itemNote}
+                              </span>
+                            ) : itemNote.toLowerCase().includes('custom') ? (
                               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
                                 🌿 {itemNote}
                               </span>

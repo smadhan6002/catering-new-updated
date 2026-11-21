@@ -82,6 +82,12 @@ export const ta: Translations = {
   continue: 'தொடரவும்',
   skip: 'தவிர்க்க',
 
+  // Normal Meals
+  normalMeals: 'சாதாரண சாப்பாடு',
+  includedItems: 'உள்ளடங்கிய உணவுகள்',
+  normalMealsAdded: 'சாதாரண சாப்பாடு கார்ட்டில் சேர்க்கப்பட்டது!',
+  platesUnit: 'நபர்களுக்கான சாப்பாடு',
+
   // Category names
   categories: {
     starters: 'முன்னோட்ட உணவுகள்',
@@ -122,7 +128,7 @@ export const ta: Translations = {
     vr13: 'கோகோநட் ரைஸ்', vr14: 'கறி லீவ்ஸ் ரைஸ்', vr15: 'புதினா ரைஸ்',
     vr16: 'பெப்பர் ரைஸ்', vr17: 'சம்பா ரைஸ்',
     // Meals & Sides
-    ms1: 'பனானா லீஃப் மீல்ஸ்', ms2: 'ரைஸ்', ms3: 'சாம்பார்', ms4: 'வத்தா குழம்பு',
+    ms1: 'வாழை இலை சாப்பாடு', ms_normal: 'சாதாரண சாப்பாடு', ms2: 'ரைஸ்', ms3: 'சாம்பார்', ms4: 'வத்தா குழம்பு',
     ms5: 'டொமேட்டோ ரசம்', ms6: 'பெப்பர் ரசம்', ms7: 'பைனாப்பிள் ரசம்', ms8: 'கார்லிக் ரசம்',
     ms9: 'பட்டர்மில்க்', ms10: 'பொரியல்', ms11: 'கூட்டு', ms12: 'அப்பளம்', ms13: 'பிக்கிள்',
     ms14: 'அவியல்', ms15: 'பொட்டேட்டோ சிப்ஸ்', ms16: 'பனானா சிப்ஸ்',
@@ -249,7 +255,8 @@ export const ta: Translations = {
     'Ghee Rice': 'கீ ரைஸ்',
 
     // Meals & Sides
-    'Banana Leaf Meals': 'பனானா லீஃப் மீல்ஸ்',
+    'Banana Leaf Meals': 'வாழை இலை சாப்பாடு',
+    'Normal Meals': 'சாதாரண சாப்பாடு',
     'Rice': 'ரைஸ்',
     'Sambar': 'சாம்பார்',
     'Vatha Kuzhambu': 'வத்தா குழம்பு',

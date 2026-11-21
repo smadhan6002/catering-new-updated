@@ -1,6 +1,7 @@
 import { siteConfig } from '../config/site';
 import type { Order } from '../types/admin';
 import type { Translations } from '../locales/en';
+import { isNormalMeals, NORMAL_MEALS_DEFAULT_ITEMS } from '../data/normalMeals';
 
 function getDishDisplayName(name: string | undefined, id: string | undefined, t: Translations): string {
   const trimmed = name?.trim() || '';
@@ -45,10 +46,23 @@ export const generateWhatsAppLink = (order: Order, t: Translations): string => {
   
   message += `${t.waSelectedDishes}\n`;
   order.items.forEach((item, index) => {
-    const displayName = getDishDisplayName(item.dishName, item.dishId, t);
-    message += `${index + 1}. ${displayName}\n`;
-    if (item.notes) {
-      message += `   🌿 ${item.notes}\n`;
+    const isNormal = isNormalMeals(item.dishId) || isNormalMeals(item.dishName);
+    if (isNormal) {
+      const isTa = (t as any).lang === 'ta';
+      const plates = item.quantity || order.guestCount || 1;
+      const platesText = isTa ? `${plates} நபர்களுக்கான சாப்பாடு` : `${plates} Plates`;
+      const name = isTa ? 'சாதாரண சாப்பாடு' : 'Normal Meals';
+      message += `${index + 1}. ${name} – ${platesText}\n`;
+      message += `   📋 ${isTa ? 'உள்ளடங்கிய உணவுகள்' : 'Included Items'}:\n`;
+      NORMAL_MEALS_DEFAULT_ITEMS.forEach((d, dIdx) => {
+        message += `      ${dIdx + 1}. ${isTa ? d.dishNameTa : d.dishName}\n`;
+      });
+    } else {
+      const displayName = getDishDisplayName(item.dishName, item.dishId, t);
+      message += `${index + 1}. ${displayName}\n`;
+      if (item.notes) {
+        message += `   🌿 ${item.notes}\n`;
+      }
     }
   });
   message += `\n`;
