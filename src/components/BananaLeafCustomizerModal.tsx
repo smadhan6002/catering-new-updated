@@ -112,23 +112,7 @@ export const BananaLeafCustomizerModal: React.FC<BananaLeafCustomizerModalProps>
 
         next.delete(dish.dishId);
       } else {
-        // Count items in this group currently selected
-        const currentInGroup = Array.from(next.values()).filter(
-          (item) => item.groupId === group.id
-        );
-
-        if (group.maxSelections === 1 && currentInGroup.length >= 1) {
-          // Radio behavior: replace existing selection in group
-          currentInGroup.forEach((it) => next.delete(it.dishId));
-        } else if (currentInGroup.length >= group.maxSelections) {
-          setValidationError(
-            isTa
-              ? `${group.nameTa} பிரிவில் அதிகபட்சம் ${group.maxSelections} உணவுகளை மட்டுமே தேர்ந்தெடுக்க முடியும்.`
-              : `You can select a maximum of ${group.maxSelections} items from ${group.name}.`
-          );
-          return prev;
-        }
-
+        // Customers can select as many available dishes as they want (no maximum restrictions)
         next.set(dish.dishId, {
           dishId: dish.dishId,
           dishName: dish.dishName,
@@ -282,7 +266,7 @@ export const BananaLeafCustomizerModal: React.FC<BananaLeafCustomizerModalProps>
               >
                 <span>{isTa ? group.nameTa : group.name}</span>
                 <span
-                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                     isSelected
                       ? 'bg-white/25 text-white'
                       : countInGroup > 0
@@ -290,7 +274,9 @@ export const BananaLeafCustomizerModal: React.FC<BananaLeafCustomizerModalProps>
                       : 'bg-slate-100 text-slate-500'
                   }`}
                 >
-                  {countInGroup}/{group.maxSelections}
+                  {countInGroup > 0
+                    ? `${countInGroup} ${isTa ? 'தேர்வு' : 'Selected'}`
+                    : '0'}
                 </span>
               </button>
             );
@@ -558,23 +544,40 @@ export const BananaLeafCustomizerModal: React.FC<BananaLeafCustomizerModalProps>
           </div>
 
           {/* Active Group Details & Requirements */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 pb-1 border-b border-slate-200/80">
-            <div>
-              <h3 className="text-base sm:text-lg font-bold text-slate-900">
-                {isTa ? activeGroup.nameTa : activeGroup.name}
-              </h3>
-              <p className="text-xs text-slate-500">
-                {isTa ? activeGroup.descriptionTa : activeGroup.description}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-orange-50 text-orange-700 border border-orange-200/70">
-                {isTa
-                  ? `குறைந்தது: ${activeGroup.minSelections} • அதிகபட்சம்: ${activeGroup.maxSelections}`
-                  : `Min: ${activeGroup.minSelections} • Max: ${activeGroup.maxSelections}`}
-              </span>
-            </div>
-          </div>
+          {(() => {
+            const activeGroupSelectedCount = Array.from(selectedDishes.values()).filter(
+              (item) => item.groupId === activeGroup.id
+            ).length;
+
+            return (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 pb-1 border-b border-slate-200/80">
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-base sm:text-lg font-bold text-slate-900">
+                      {isTa ? activeGroup.nameTa : activeGroup.name}
+                    </h3>
+                    <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-orange-100 text-orange-800 border border-orange-200">
+                      {activeGroupSelectedCount} {isTa ? 'தேர்வு செய்யப்பட்டது' : 'Selected'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {isTa ? activeGroup.descriptionTa : activeGroup.description}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200/70">
+                    {isTa
+                      ? activeGroup.isRequired && activeGroup.minSelections > 1
+                        ? `குறைந்தது: ${activeGroup.minSelections} (வரம்பற்ற தேர்வு)`
+                        : 'வரம்பற்ற தேர்வு'
+                      : activeGroup.isRequired && activeGroup.minSelections > 1
+                      ? `Min: ${activeGroup.minSelections} (Unlimited Selection)`
+                      : 'Unlimited Selection'}
+                  </span>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* ─── DISH CARDS GRID ─── */}
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 sm:gap-3.5">

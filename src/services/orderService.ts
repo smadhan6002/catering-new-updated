@@ -409,6 +409,49 @@ export const orderService = {
     if (isSupabaseConfigured) {
       console.log(`[orderService] Persisting order ${orderNumber} (${orderUuid}) to Supabase...`);
 
+      // Attempt secure atomic RPC first
+      try {
+        const rpcPayload = {
+          customer_name: data.customerName,
+          mobile: data.mobile,
+          alternative_mobile: data.alternativeMobile || null,
+          event_address: data.eventAddress,
+          event_type: data.eventType || 'Catering',
+          order_date: data.orderDate,
+          delivery_time: data.deliveryTime || null,
+          guest_count: data.guestCount || null,
+          notes: data.notes || '',
+          food_quantities: data.foodQuantities || [],
+          items: (data.items || []).map((it) => ({
+            dish_id: it.dishId,
+            dish_name: it.dishName,
+            category_id: it.categoryId,
+            quantity: it.quantity || null,
+            unit: it.unit || 'Portions',
+            notes: it.notes || null,
+            price: it.price || 0,
+          })),
+        };
+
+        const { data: rpcRes, error: rpcErr } = await supabase.rpc('submit_order', { payload: rpcPayload });
+
+        if (!rpcErr && rpcRes && rpcRes.success) {
+          console.log(`[orderService] Order ${rpcRes.order_number} (${rpcRes.order_id}) created successfully via atomic RPC.`);
+          const savedOrder: Order = {
+            ...order,
+            id: rpcRes.order_id,
+            orderNumber: rpcRes.order_number,
+          };
+          orders.unshift(savedOrder);
+          localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
+          return savedOrder;
+        } else if (rpcErr) {
+          console.warn('[orderService] RPC submit_order fallback to direct insert:', rpcErr.message);
+        }
+      } catch (rpcEx) {
+        console.warn('[orderService] RPC call exception, continuing with direct insert:', rpcEx);
+      }
+
       const fullRow = mapOrderToRow(order, orderUuid, orderNumber);
       let ordResult = await supabase.from('orders').insert(fullRow);
 

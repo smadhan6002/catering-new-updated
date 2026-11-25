@@ -133,6 +133,29 @@ export const messageService = {
         messagePayload = `${metaPrefix} ${messagePayload}`.trim();
       }
 
+      // Attempt secure atomic RPC first
+      try {
+        const rpcPayload = {
+          customer_name: data.customerName.trim(),
+          phone: data.phone.trim(),
+          email: data.email?.trim() || null,
+          message: data.message.trim(),
+          event_type: data.eventType?.trim() || null,
+          event_date: data.eventDate || null,
+          guest_count: data.guestCount || null,
+        };
+
+        const { data: rpcRes, error: rpcErr } = await supabase.rpc('submit_customer_enquiry', { payload: rpcPayload });
+        if (!rpcErr && rpcRes && rpcRes.success) {
+          console.log('[messageService] Enquiry submitted successfully via atomic RPC:', rpcRes.message_id);
+          return newMessage;
+        } else if (rpcErr) {
+          console.warn('[messageService] RPC submit_customer_enquiry fallback to direct insert:', rpcErr.message);
+        }
+      } catch (rpcEx) {
+        console.warn('[messageService] RPC enquiry exception, continuing with direct insert:', rpcEx);
+      }
+
       const { error } = await supabase.from('customer_messages').insert({
         id,
         customer_name: data.customerName.trim(),

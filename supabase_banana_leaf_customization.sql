@@ -21,27 +21,24 @@ CREATE TABLE IF NOT EXISTS public.meal_customization_configs (
 -- Enable Row Level Security
 ALTER TABLE public.meal_customization_configs ENABLE ROW LEVEL SECURITY;
 
--- Allow public read access so website customers can see meal customization options
+-- Clean legacy policies
 DROP POLICY IF EXISTS "Public can view meal customization configs" ON public.meal_customization_configs;
-CREATE POLICY "Public can view meal customization configs"
+DROP POLICY IF EXISTS "Admins can manage meal customization configs" ON public.meal_customization_configs;
+DROP POLICY IF EXISTS "Anon can manage meal customization configs" ON public.meal_customization_configs;
+DROP POLICY IF EXISTS "customization_public_select" ON public.meal_customization_configs;
+DROP POLICY IF EXISTS "customization_admin_all" ON public.meal_customization_configs;
+
+-- Allow public read access so website customers can see meal customization options
+CREATE POLICY "customization_public_select"
   ON public.meal_customization_configs
   FOR SELECT
+  TO public
   USING (true);
 
 -- Allow authenticated admins to update meal customization configs
-DROP POLICY IF EXISTS "Admins can manage meal customization configs" ON public.meal_customization_configs;
-CREATE POLICY "Admins can manage meal customization configs"
+CREATE POLICY "customization_admin_all"
   ON public.meal_customization_configs
   FOR ALL
   TO authenticated
-  USING (true)
-  WITH CHECK (true);
-
--- Allow anon to insert/update during local dev/admin if needed
-DROP POLICY IF EXISTS "Anon can manage meal customization configs" ON public.meal_customization_configs;
-CREATE POLICY "Anon can manage meal customization configs"
-  ON public.meal_customization_configs
-  FOR ALL
-  TO anon
-  USING (true)
-  WITH CHECK (true);
+  USING (public.is_admin())
+  WITH CHECK (public.is_admin());

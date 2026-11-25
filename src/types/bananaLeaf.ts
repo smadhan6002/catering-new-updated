@@ -21,7 +21,7 @@ export interface MealGroup {
   description?: string;
   descriptionTa?: string;
   minSelections: number;
-  maxSelections: number;
+  maxSelections?: number;
   isRequired: boolean;
   dishes: MealDishOption[];
 }

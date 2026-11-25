@@ -79,7 +79,6 @@ export const AdminBananaLeafConfigModal: React.FC<AdminBananaLeafConfigModalProp
       description: 'Choose from items',
       descriptionTa: 'விருப்பமான உணவுகளைத் தேர்ந்தெடுக்கவும்',
       minSelections: 1,
-      maxSelections: 2,
       isRequired: true,
       dishes: [],
     };
@@ -350,7 +349,7 @@ export const AdminBananaLeafConfigModal: React.FC<AdminBananaLeafConfigModalProp
                           </h4>
                         </div>
                         <p className="text-[11px] text-slate-500 mt-0.5">
-                          {group.dishes.length} {isTa ? 'உணவுகள்' : 'options'} • Min: {group.minSelections}, Max: {group.maxSelections}
+                          {group.dishes.length} {isTa ? 'உணவுகள்' : 'options'} • Min: {group.minSelections} • {isTa ? 'வரம்பற்ற தேர்வு' : 'No Max Limit'}
                         </p>
                       </div>
 
@@ -424,7 +423,7 @@ export const AdminBananaLeafConfigModal: React.FC<AdminBananaLeafConfigModalProp
                     <input
                       type="number"
                       min={0}
-                      max={currentGroup.maxSelections}
+                      max={99}
                       value={currentGroup.minSelections}
                       onChange={(e) =>
                         handleUpdateGroup(currentGroup.id, { minSelections: Math.max(0, parseInt(e.target.value) || 0) })
@@ -435,18 +434,14 @@ export const AdminBananaLeafConfigModal: React.FC<AdminBananaLeafConfigModalProp
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
-                      {isTa ? 'அதிகபட்ச தேர்வுகள் (Max)' : 'Max Selections Allowed'}
+                      {isTa ? 'அதிகபட்ச தேர்வுகள்' : 'Max Selections Limit'}
                     </label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={20}
-                      value={currentGroup.maxSelections}
-                      onChange={(e) =>
-                        handleUpdateGroup(currentGroup.id, { maxSelections: Math.max(1, parseInt(e.target.value) || 1) })
-                      }
-                      className="w-full text-xs sm:text-sm px-3 py-2 bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
+                    <div className="w-full text-xs px-3 py-2.5 bg-emerald-50 border border-emerald-200/80 rounded-xl text-emerald-800 font-medium flex items-center justify-between">
+                      <span>{isTa ? 'வரம்பற்ற தேர்வு (அனைத்தையும் தேர்வு செய்யலாம்)' : 'No Limit (Select Any / All Dishes)'}</span>
+                      <span className="text-[10px] font-bold bg-emerald-200/80 px-2 py-0.5 rounded-md text-emerald-900">
+                        {isTa ? 'வரம்பற்றது' : 'Unlimited'}
+                      </span>
+                    </div>
                   </div>
                 </div>
 

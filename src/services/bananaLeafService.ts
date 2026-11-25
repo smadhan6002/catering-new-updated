@@ -29,7 +29,6 @@ export const DEFAULT_BANANA_LEAF_CONFIG: MealCustomizationConfig = {
       description: 'Choose your preferred rice options',
       descriptionTa: 'உங்கள் விருப்பமான சாத வகைகளைத் தேர்ந்தெடுக்கவும்',
       minSelections: 1,
-      maxSelections: 3,
       isRequired: true,
       dishes: [
         { dishId: 'ms2', dishName: 'Rice', dishNameTa: 'சாதம்', isDefault: true, isRequired: true },
@@ -47,7 +46,6 @@ export const DEFAULT_BANANA_LEAF_CONFIG: MealCustomizationConfig = {
       description: 'Essential South Indian gravies',
       descriptionTa: 'பாரம்பரிய சாம்பார் மற்றும் ரச வகைகள்',
       minSelections: 1,
-      maxSelections: 3,
       isRequired: true,
       dishes: [
         { dishId: 'ms3', dishName: 'Sambar', dishNameTa: 'சாம்பார்', isDefault: true, isRequired: true },
@@ -64,7 +62,6 @@ export const DEFAULT_BANANA_LEAF_CONFIG: MealCustomizationConfig = {
       description: 'Traditional fresh vegetable sides',
       descriptionTa: 'சுவையான பொரியல் மற்றும் கூட்டு வகைகள்',
       minSelections: 1,
-      maxSelections: 3,
       isRequired: true,
       dishes: [
         { dishId: 'ms10', dishName: 'Poriyal', dishNameTa: 'பொரியல்', isDefault: true },
@@ -79,7 +76,6 @@ export const DEFAULT_BANANA_LEAF_CONFIG: MealCustomizationConfig = {
       description: 'Crispy appalam, pickle & refreshing buttermilk',
       descriptionTa: 'அப்பளம், ஊறுகாய் மற்றும் நீர்மோர்',
       minSelections: 1,
-      maxSelections: 4,
       isRequired: true,
       dishes: [
         { dishId: 'ms12', dishName: 'Appalam', dishNameTa: 'அப்பளம்', isDefault: true, isRequired: true },
@@ -104,19 +100,23 @@ function sanitizeGroups(groups: MealGroup[]): MealGroup[] {
         !g.name.toLowerCase().includes('sweet') &&
         !(g.nameTa && g.nameTa.includes('பாயாசம்'))
     )
-    .map((g) => ({
-      ...g,
-      dishes: (g.dishes || []).filter((d) => {
-        const idLower = (d.dishId || '').toLowerCase();
-        const nameLower = (d.dishName || '').toLowerCase();
-        const taLower = (d.dishNameTa || '').toLowerCase();
-        return (
-          !idLower.startsWith('py') &&
-          !nameLower.includes('payasam') &&
-          !taLower.includes('பாயாசம்')
-        );
-      }),
-    }));
+    .map((g) => {
+      // Remove any legacy max selection restrictions
+      const { maxSelections: _legacyMax, ...rest } = g;
+      return {
+        ...rest,
+        dishes: (g.dishes || []).filter((d) => {
+          const idLower = (d.dishId || '').toLowerCase();
+          const nameLower = (d.dishName || '').toLowerCase();
+          const taLower = (d.dishNameTa || '').toLowerCase();
+          return (
+            !idLower.startsWith('py') &&
+            !nameLower.includes('payasam') &&
+            !taLower.includes('பாயாசம்')
+          );
+        }),
+      };
+    });
 }
 
 function enrichDishOptions(groups: MealGroup[]): MealGroup[] {
